@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="src" path="benchmark"/>
+	<classpathentry kind="src" path="deps/v8/benchmarks"/>
+	<classpathentry kind="src" path="deps/v8/samples"/>
+	<classpathentry kind="src" path="deps/v8/src"/>
+	<classpathentry kind="src" path="deps/v8/test/es5conform"/>
+	<classpathentry excluding="regress/" kind="src" path="deps/v8/test/message"/>
+	<classpathentry kind="src" path="deps/v8/test/message/regress"/>
+	<classpathentry excluding="compiler/|regress/|bugs/|tools/|third_party/" kind="src" path="deps/v8/test/mjsunit"/>
+	<classpathentry kind="src" path="deps/v8/test/mjsunit/bugs"/>
+	<classpathentry kind="src" path="deps/v8/test/mjsunit/compiler"/>
+	<classpathentry kind="src" path="deps/v8/test/mjsunit/regress"/>
+	<classpathentry kind="src" path="deps/v8/test/mjsunit/third_party"/>
+	<classpathentry kind="src" path="deps/v8/test/mjsunit/tools"/>
+	<classpathentry kind="src" path="deps/v8/test/mozilla"/>
+	<classpathentry kind="src" path="deps/v8/tools"/>
+	<classpathentry kind="src" path="doc"/>
+	<classpathentry kind="src" path="lib"/>
+	<classpathentry kind="src" path="src"/>
+	<classpathentry excluding="fixtures/require-path/p1/|fixtures/module-load-order/file6/|fixtures/nested-index/one/|fixtures/|fixtures/require-path/p2/|fixtures/module-load-order/file5/|fixtures/cycles/|fixtures/module-load-order/file4/|pummel/|fixtures/module-load-order/file3/|fixtures/b/package/|fixtures/module-load-order/file2/|fixtures/cycles/folder/|fixtures/readdir/|message/|simple/|fixtures/b/|fixtures/nested-index/two/|fixtures/module-load-order/|disabled/" kind="src" path="test"/>
+	<classpathentry kind="src" path="test/disabled"/>
+	<classpathentry excluding="require-path/p1/|module-load-order/file6/|nested-index/one/|require-path/p2/|module-load-order/file5/|cycles/|module-load-order/file4/|module-load-order/file3/|b/package/|module-load-order/file2/|cycles/folder/|readdir/|b/|nested-index/two/|module-load-order/" kind="src" path="test/fixtures"/>
+	<classpathentry excluding="package/" kind="src" path="test/fixtures/b"/>
+	<classpathentry kind="src" path="test/fixtures/b/package"/>
+	<classpathentry excluding="folder/" kind="src" path="test/fixtures/cycles"/>
+	<classpathentry kind="src" path="test/fixtures/cycles/folder"/>
+	<classpathentry excluding="file6/|file5/|file4/|file3/|file2/" kind="src" path="test/fixtures/module-load-order"/>
+	<classpathentry kind="src" path="test/fixtures/module-load-order/file2"/>
+	<classpathentry kind="src" path="test/fixtures/module-load-order/file3"/>
+	<classpathentry kind="src" path="test/fixtures/module-load-order/file4"/>
+	<classpathentry kind="src" path="test/fixtures/module-load-order/file5"/>
+	<classpathentry kind="src" path="test/fixtures/module-load-order/file6"/>
+	<classpathentry kind="src" path="test/fixtures/nested-index/one"/>
+	<classpathentry kind="src" path="test/fixtures/nested-index/two"/>
+	<classpathentry kind="src" path="test/fixtures/readdir"/>
+	<classpathentry kind="src" path="test/fixtures/require-path/p1"/>
+	<classpathentry kind="src" path="test/fixtures/require-path/p2"/>
+	<classpathentry kind="src" path="test/message"/>
+	<classpathentry kind="src" path="test/pummel"/>
+	<classpathentry kind="src" path="test/simple"/>
+	<classpathentry kind="src" path="tools/ronnjs/bin"/>
+	<classpathentry excluding="ext/" kind="src" path="tools/ronnjs/lib"/>
+	<classpathentry kind="src" path="tools/ronnjs/lib/ext"/>
+	<classpathentry kind="con" path="org.eclipse.wst.jsdt.launching.JRE_CONTAINER"/>
+	<classpathentry kind="output" path=""/>
+</classpath>
