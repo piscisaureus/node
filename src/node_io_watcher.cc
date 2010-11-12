@@ -54,6 +54,10 @@ void IOWatcher::Initialize(Handle<Object> target) {
   Local<Function> io_watcher = constructor_template->GetFunction();
   target->Set(String::NewSymbol("IOWatcher"), io_watcher);
 
+  NODE_SET_METHOD(constructor_template->GetFunction(),
+                  "flush",
+                  IOWatcher::Flush);
+
   callback_symbol = NODE_PSYMBOL("callback");
 
   next_sym = NODE_PSYMBOL("next");
@@ -193,6 +197,13 @@ Handle<Value> IOWatcher::Set(const Arguments& args) {
   return Undefined();
 }
 
+
+Handle<Value> IOWatcher::Flush(const Arguments& args) {
+  HandleScope scope; // unneccessary?
+  IOWatcher::Dump();
+  return Undefined();
+}
+
 #define KB 1024
 
 /*
@@ -232,7 +243,11 @@ Handle<Value> IOWatcher::Set(const Arguments& args) {
 void IOWatcher::Dump(EV_P_ ev_prepare *w, int revents) {
   assert(revents == EV_PREPARE);
   assert(w == &dumper);
+  Dump();
+}
 
+
+void IOWatcher::Dump() {
   HandleScope scope;
 
 #define IOV_SIZE 10000
