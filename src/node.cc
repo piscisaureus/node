@@ -1067,6 +1067,9 @@ static Handle<Value> Cwd(const Arguments& args) {
   return scope.Close(cwd);
 }
 
+
+#ifdef __POSIX__
+
 static Handle<Value> Umask(const Arguments& args){
   HandleScope scope;
   unsigned int old;
@@ -1170,6 +1173,8 @@ static Handle<Value> SetUid(const Arguments& args) {
   return Undefined();
 }
 
+#endif // __POSIX__
+
 
 v8::Handle<v8::Value> Exit(const v8::Arguments& args) {
   HandleScope scope;
@@ -1238,6 +1243,7 @@ v8::Handle<v8::Value> MemoryUsage(const v8::Arguments& args) {
   return scope.Close(info);
 }
 
+#ifdef __POSIX__
 
 Handle<Value> Kill(const Arguments& args) {
   HandleScope scope;
@@ -1334,6 +1340,8 @@ Handle<Value> DLOpen(const v8::Arguments& args) {
   // coverity[leaked_storage]
   return Undefined();
 }
+
+#endif // __POSIX__
 
 
 // TODO remove me before 0.4
@@ -1559,7 +1567,11 @@ static Handle<Value> EnvSetter(Local<String> property,
                                const AccessorInfo& info) {
   String::Utf8Value key(property);
   String::Utf8Value val(value);
+#ifdef __POSIX__
   setenv(*key, *val, 1);
+#else  // __WIN32__
+  NO_IMPL_MSG(setenv)
+#endif
   return value;
 }
 
@@ -1579,7 +1591,11 @@ static Handle<Boolean> EnvDeleter(Local<String> property,
                                   const AccessorInfo& info) {
   String::Utf8Value key(property);
   if (getenv(*key)) {
+#ifdef __POSIX__
     unsetenv(*key);	// prototyped as `void unsetenv(const char*)` on some platforms
+#else
+    NO_IMPL_MSG(unsetenv)
+#endif
     return True();
   }
   return False();
@@ -1697,6 +1713,8 @@ static void Load(int argc, char *argv[]) {
   NODE_SET_METHOD(process, "reallyExit", Exit);
   NODE_SET_METHOD(process, "chdir", Chdir);
   NODE_SET_METHOD(process, "cwd", Cwd);
+
+#ifdef __POSIX__
   NODE_SET_METHOD(process, "getuid", GetUid);
   NODE_SET_METHOD(process, "setuid", SetUid);
 
@@ -1706,6 +1724,8 @@ static void Load(int argc, char *argv[]) {
   NODE_SET_METHOD(process, "umask", Umask);
   NODE_SET_METHOD(process, "dlopen", DLOpen);
   NODE_SET_METHOD(process, "_kill", Kill);
+#endif // __POSIX__
+
   NODE_SET_METHOD(process, "memoryUsage", MemoryUsage);
 
   NODE_SET_METHOD(process, "binding", Binding);
@@ -1859,7 +1879,7 @@ static void SignalExit(int signal) {
   _exit(1);
 }
 
-
+#ifdef __POSIX__
 static int RegisterSignalHandler(int signal, void (*handler)(int)) {
   struct sigaction sa;
 
@@ -1868,6 +1888,7 @@ static int RegisterSignalHandler(int signal, void (*handler)(int)) {
   sigfillset(&sa.sa_mask);
   return sigaction(signal, &sa, NULL);
 }
+#endif // __POSIX__
 
 
 int Start(int argc, char *argv[]) {
@@ -1907,10 +1928,12 @@ int Start(int argc, char *argv[]) {
   }
   V8::SetFlagsFromCommandLine(&v8argc, v8argv, false);
 
+#ifdef __POSIX__
   // Ignore SIGPIPE
   RegisterSignalHandler(SIGPIPE, SIG_IGN);
   RegisterSignalHandler(SIGINT, SignalExit);
   RegisterSignalHandler(SIGTERM, SignalExit);
+#endif // __POSIX__
 
 #ifdef __MINGW32__
   // On windows, to use winsock it must be initialized
