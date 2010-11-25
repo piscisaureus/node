@@ -178,7 +178,8 @@ def configure(conf):
   o = Options.options
 
   conf.env["USE_DEBUG"] = o.debug
-  conf.env["SNAPSHOT_V8"] = not o.without_snapshot
+  # Snapshot building does noet seem to work on mingw32
+  conf.env["SNAPSHOT_V8"] = not o.without_snapshot and not sys.platform.startswith("win32")
   conf.env["USE_PROFILING"] = o.profile
 
   conf.env["USE_SHARED_V8"] = o.shared_v8 or o.shared_v8_includes or o.shared_v8_libpath or o.shared_v8_libname
