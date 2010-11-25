@@ -124,6 +124,18 @@ static inline bool SetSockFlags(int fd) {
 }
 
 
+#ifdef __MINGW32__
+
+// IsSocket is used in windows only;
+// there's currently no need to port it to posix.
+static inline bool IsSocket(int fd) {
+  unsigned long arg = 0;
+  return ioctlsocket(_get_osfhandle(fd), FIONREAD, &arg) == 0;
+}
+
+#endif // __MINGW32__
+
+
 #ifdef __POSIX__
 
 // Creates nonblocking pipe
@@ -708,24 +720,30 @@ static Handle<Value> Read(const Arguments& args) {
           String::New("Length is extends beyond buffer")));
   }
 
-#ifdef __POSIX__
-  ssize_t bytes_read = read(fd, (char*)buffer_data + off, len);
+  ssize_t bytes_read;
 
-  if (bytes_read < 0) {
-    if (errno == EAGAIN || errno == EINTR) return Null();
-    return ThrowException(ErrnoException(errno, "read"));
-  }
-#else // __MINGW32__
+#ifdef __MINGW32__
    // read() doesn't work for overlapped sockets (the only usable 
    // type of sockets) so recv() is used here.
-  ssize_t bytes_read = recv(_get_osfhandle(fd), (char*)buffer_data + off, len, 0);
+   // For other FD's try read anyway.
+  ssize_t bytes_read = recv(_get_osfhandle(fd), (char*)buffer_data + off, len, 0);  if (IsSocket(fd)) {
+    bytes_read = recv(_get_osfhandle(fd), (char*)buffer_data + off, len, 0);
 
   if (bytes_read < 0) {
     int wsaErrno = WSAGetLastError();
     if (wsaErrno == WSAEWOULDBLOCK || wsaErrno == WSAEINTR) return Null();
     return ThrowException(ErrnoException(wsaErrno, "read"));
   }
-#endif
+  } else
+#endif // __MINGW32__
+  {
+    bytes_read = read(fd, (char*)buffer_data + off, len);
+
+    if (bytes_read < 0) {
+      if (errno == EAGAIN || errno == EINTR) return Null();
+      return ThrowException(ErrnoException(errno, "read"));
+    }
+  }
 
   return scope.Close(Integer::New(bytes_read));
 }
@@ -925,19 +943,13 @@ static Handle<Value> Write(const Arguments& args) {
           String::New("Length is extends beyond buffer")));
   }
 
-#ifdef __POSIX__
-  ssize_t written = write(fd, buffer_data + off, len);
+  ssize_t written;
 
-  if (written < 0) {
-    if (errno == EAGAIN || errno == EINTR) {
-      return scope.Close(Integer::New(0));
-    }
-    return ThrowException(ErrnoException(errno, "write"));
-  }
-#else // __MINGW32__
+#ifdef __MINGW32__
   // write() doesn't work for overlapped sockets (the only usable 
   // type of sockets) so send() is used.
-  ssize_t written = send(_get_osfhandle(fd), buffer_data + off, len, 0);
+  // For other FD's try write anyway.  ssize_t written = send(_get_osfhandle(fd), buffer_data + off, len, 0);  if (IsSocket(fd)) {
+    written = send(_get_osfhandle(fd), buffer_data + off, len, 0);
 
   if (written < 0) {
     int wsaErrno = WSAGetLastError();
@@ -946,7 +958,18 @@ static Handle<Value> Write(const Arguments& args) {
     }
     return ThrowException(ErrnoException(wsaErrno, "write"));
   }
+  } else
 #endif // __MINGW32__
+  {
+    written = write(fd, buffer_data + off, len);
+
+    if (written < 0) {
+      if (errno == EAGAIN || errno == EINTR) {
+        return scope.Close(Integer::New(0));
+      }
+      return ThrowException(ErrnoException(errno, "write"));
+    }
+  }
 
   return scope.Close(Integer::New(written));
 }
