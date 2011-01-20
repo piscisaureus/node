@@ -323,6 +323,70 @@ static Handle<Value> SetCursor(const Arguments& args) {
 }
 
 
+/* setTextColor(fd, r, g, b) */
+static Handle<Value> SetTextColor(const Arguments& args) {
+  HandleScope scope;
+  int fd;
+  HANDLE handle;
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  WORD flags;
+
+  if (!args[0]->IsNumber())
+    THROW_BAD_ARGS
+  fd = args[0]->IntegerValue();
+  handle = (HANDLE)_get_osfhandle(fd);
+
+  if (!GetConsoleScreenBufferInfo(handle, &info))
+    return ThrowException(ErrnoException(GetLastError(), "GetConsoleScreenBufferInfo"));
+
+  flags = info.wAttributes & ~(FOREGROUND_BLUE | FOREGROUND_GREEN | FOREGROUND_RED);
+
+  if (args[1]->IsTrue())
+    flags |= FOREGROUND_RED;
+  if (args[2]->IsTrue())
+    flags |= FOREGROUND_GREEN;
+  if (args[3]->IsTrue())
+    flags |= FOREGROUND_BLUE;
+
+  if (flags != info.wAttributes) {
+    if (!SetConsoleTextAttribute(handle, flags))
+      return ThrowException(ErrnoException(GetLastError(), "SetConsoleTextAttribute"));
+  }
+
+  return Undefined();
+}
+
+
+/* setTextIntensity(fd, bold) */
+static Handle<Value> SetTextIntensity(const Arguments& args) {
+  HandleScope scope;
+  int fd;
+  HANDLE handle;
+  CONSOLE_SCREEN_BUFFER_INFO info;
+  WORD flags;
+
+  if (!args[0]->IsNumber())
+    THROW_BAD_ARGS
+  fd = args[0]->IntegerValue();
+  handle = (HANDLE)_get_osfhandle(fd);
+
+  if (!GetConsoleScreenBufferInfo(handle, &info))
+    return ThrowException(ErrnoException(GetLastError(), "GetConsoleScreenBufferInfo"));
+
+  flags = info.wAttributes & ~FOREGROUND_INTENSITY;
+
+  if (args[1]->IsTrue())
+    flags |= FOREGROUND_INTENSITY;
+
+  if (flags != info.wAttributes) {
+    if (!SetConsoleTextAttribute(handle, flags))
+      return ThrowException(ErrnoException(GetLastError(), "SetConsoleTextAttribute"));
+  }
+
+  return Undefined();
+}
+
+
 /*
  * ClearLine(fd, direction)
  * direction:
@@ -654,6 +718,8 @@ void Stdio::Initialize(v8::Handle<v8::Object> target) {
   NODE_SET_METHOD(target, "moveCursor", SetCursor<true>);
   NODE_SET_METHOD(target, "cursorTo", SetCursor<false>);
   NODE_SET_METHOD(target, "clearLine", ClearLine);
+  NODE_SET_METHOD(target, "setTextColor", SetTextColor);
+  NODE_SET_METHOD(target, "setTextIntensity", SetTextIntensity);
   NODE_SET_METHOD(target, "getWindowSize", GetWindowSize);
   NODE_SET_METHOD(target, "initTTYWatcher", InitTTYWatcher);
   NODE_SET_METHOD(target, "destroyTTYWatcher", DestroyTTYWatcher);
