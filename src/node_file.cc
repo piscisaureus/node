@@ -17,6 +17,7 @@
 
 #ifdef __MINGW32__
 # include <platform_win32.h>
+# include <platform_win32_fs.h>
 #endif
 
 /* used for readlink, AIX doesn't provide it */
@@ -48,9 +49,69 @@ static Persistent<String> buf_symbol;
 // file-level rather than method-level to avoid excess stack usage.
 // Not used on windows atm
 #ifdef __POSIX__
-  static char getbuf[PATH_MAX + 1];
+static char getbuf[PATH_MAX + 1];
 #endif
 
+
+#ifdef __MINGW32__
+
+typedef struct {
+  WCHAR *target;
+  WCHAR *path;
+  bool junction;
+  bool target_is_dir;
+  void *user_data;
+} win_symlink_data;
+
+int eio_win_symlink_exec(eio_req *req) {
+  win_symlink_data *data = (win_symlink_data*)req->data;
+
+  req->result = win_symlink(data->target, data->path, data->junction, data->target_is_dir);
+  req->errorno = errno;
+
+  // Patch the eio_req structure so After() doesn't get confused
+  req->data = data->user_data;
+  req->type = EIO_SYMLINK;
+
+  free(data->target);
+  free(data->path);
+  free(data);
+
+  return 0;
+}
+
+eio_req *eio_win_symlink(WCHAR *target, WCHAR *path, bool junction,
+    bool target_is_dir, int pri, eio_cb cb, void *user_data) {
+
+  win_symlink_data *data = (win_symlink_data*)malloc(sizeof(*data));
+  WCHAR *target_ = wcsdup(target);
+  WCHAR *path_ = wcsdup(path);
+
+  if (!data || !target_ || !path_)
+    goto error;
+
+  eio_req *req;
+
+  data->path = path_;
+  data->target = target_;
+  data->junction = junction;
+  data->target_is_dir = target_is_dir;
+  data->user_data = user_data;
+
+  req = eio_custom(eio_win_symlink_exec, EIO_PRI_DEFAULT, cb, (void*)data);
+  if (!req)
+    goto error;
+
+  return req;
+
+error:
+  free(data);
+  free(target_);
+  free(path_);
+  return 0;
+}
+
+#endif // #endif
 
 static inline bool SetCloseOnExec(int fd) {
 #ifdef __POSIX__
@@ -359,15 +420,38 @@ static Handle<Value> Symlink(const Arguments& args) {
   String::Utf8Value dest(args[0]->ToString());
   String::Utf8Value path(args[1]->ToString());
 
-  if (args[2]->IsFunction()) {
-    ASYNC_CALL(symlink, args[2], *dest, *path)
+  if (args[4]->IsFunction()) {
+    ASYNC_CALL(symlink, args[4], *dest, *path)
   } else {
     int ret = symlink(*dest, *path);
     if (ret != 0) return ThrowException(ErrnoException(errno));
     return Undefined();
   }
 }
-#endif // __POSIX__
+
+#else // __MINGW32__
+static Handle<Value> Symlink(const Arguments& args) {
+  HandleScope scope;
+
+  if (args.Length() < 2 || !args[0]->IsString() || !args[1]->IsString()) {
+    return THROW_BAD_ARGS;
+  }
+
+  String::Value dest(args[0]);
+  String::Value path(args[1]);
+  bool junction = args[2]->BooleanValue();
+  bool target_is_dir = args[3]->BooleanValue();
+
+  if (args[4]->IsFunction()) {
+    ASYNC_CALL(win_symlink, args[4], (WCHAR*)*dest, (WCHAR*)*path, junction, target_is_dir)
+  } else {
+    bool ret = win_symlink((WCHAR*)*dest, (WCHAR*)*path, junction, target_is_dir);
+    if (ret != 0) return ThrowException(ErrnoException(errno));
+    return Undefined();
+  }
+}
+#endif // __MINGW32__
+
 
 #ifdef __POSIX__
 static Handle<Value> Link(const Arguments& args) {
@@ -845,7 +929,9 @@ void File::Initialize(Handle<Object> target) {
   NODE_SET_METHOD(target, "fstat", FStat);
 #ifdef __POSIX__
   NODE_SET_METHOD(target, "link", Link);
+#endif
   NODE_SET_METHOD(target, "symlink", Symlink);
+#ifdef __POSIX__
   NODE_SET_METHOD(target, "readlink", ReadLink);
 #endif // __POSIX__
   NODE_SET_METHOD(target, "unlink", Unlink);
@@ -863,6 +949,7 @@ void File::Initialize(Handle<Object> target) {
 
 void InitFs(Handle<Object> target) {
   HandleScope scope;
+
   // Initialize the stats object
   Local<FunctionTemplate> stat_templ = FunctionTemplate::New();
   stats_constructor_template = Persistent<FunctionTemplate>::New(stat_templ);
@@ -874,6 +961,9 @@ void InitFs(Handle<Object> target) {
 #ifdef __MINGW32__
   // Open files in binary mode by default
   _fmode = _O_BINARY;
+
+  // Initialize windows FS stuff
+  win_fs_init();
 #endif
 }
 

@@ -11,6 +11,7 @@
 
 #include <platform_win32.h>
 
+#include <platform_win32_fs.cc>
 #include <platform_win32_winsock.cc>
 
 namespace node {
