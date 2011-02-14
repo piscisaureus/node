@@ -51,6 +51,19 @@ static Persistent<String> write_sym;
 Persistent<FunctionTemplate> Buffer::constructor_template;
 
 
+#ifdef __MINGW32__
+// MinGW32 lacks strnlen, so it's implemented here
+// Nope, not SSE3-optimized. maybe in another live
+static inline size_t strnlen(const char *str, size_t max) {
+  for (size_t i = 0; i < max; i++) {
+    if (str[i] == 0)
+      return i;
+  }
+  return max;
+}
+#endif // __MINGW32__
+
+
 static inline size_t base64_decoded_size(const char *src, size_t size) {
   const char *const end = src + size;
   const int remainder = size % 4;
