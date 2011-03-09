@@ -369,19 +369,19 @@ def configure(conf):
     conf.sub_config('deps/c-ares')
 
 
-  if conf.env['USE_SHARED_LIBEV']:
-    libev_includes = [];
-    if o.shared_libev_includes: libev_includes.append(o.shared_libev_includes);
-    libev_libpath = [];
-    if o.shared_libev_libpath: libev_libpath.append(o.shared_libev_libpath);
-    if not conf.check_cxx(lib='ev', header_name='ev.h',
-                          uselib_store='EV',
-                          includes=libev_includes,
-                          libpath=libev_libpath):
-      conf.fatal("Cannot find libev")
-  else:
-    conf.sub_config('deps/libev')
-
+  if not sys.platform.startswith("win32"):
+    if conf.env['USE_SHARED_LIBEV']:
+      libev_includes = [];
+      if o.shared_libev_includes: libev_includes.append(o.shared_libev_includes);
+      libev_libpath = [];
+      if o.shared_libev_libpath: libev_libpath.append(o.shared_libev_libpath);
+      if not conf.check_cxx(lib='ev', header_name='ev.h',
+                            uselib_store='EV',
+                            includes=libev_includes,
+                            libpath=libev_libpath):
+        conf.fatal("Cannot find libev")
+    else:
+      conf.sub_config('deps/libev')
 
 
   conf.define("HAVE_CONFIG_H", 1)
@@ -606,9 +606,9 @@ def build(bld):
   bld.add_subdirs('deps/libeio')
 
   if not bld.env['USE_SHARED_V8']: build_v8(bld)
-  if not bld.env['USE_SHARED_LIBEV']: bld.add_subdirs('deps/libev')
+  ### if not bld.env['USE_SHARED_LIBEV']: bld.add_subdirs('deps/libev')
   if not bld.env['USE_SHARED_CARES']: bld.add_subdirs('deps/c-ares')
-
+  bld.add_subdirs('deps/libeio')
 
   ### http_parser
   http_parser = bld.new_task_gen("cc")
@@ -787,6 +787,7 @@ def build(bld):
   if sys.platform.startswith("win32"):
     node.source += " src/node_stdio_win32.cc "
     node.source += " src/node_child_process_win32.cc "
+    node.source += " src/win32/ev.cc "
   else:
     node.source += " src/node_stdio.cc "
     node.source += " src/node_child_process.cc "
@@ -801,13 +802,14 @@ def build(bld):
     src/
     deps/libeio
     deps/http_parser
+    src/win32
   """
-
+  
   if not bld.env["USE_SHARED_V8"]: node.includes += ' deps/v8/include '
 
-  if not bld.env["USE_SHARED_LIBEV"]:
-    node.add_objects += ' ev '
-    node.includes += ' deps/libev '
+  #if not bld.env["USE_SHARED_LIBEV"]:
+  #  node.add_objects += ' ev '
+  #  node.includes += ' deps/libev '
 
   if not bld.env["USE_SHARED_CARES"]:
     node.add_objects += ' cares '

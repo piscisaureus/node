@@ -4,7 +4,7 @@
 // Require at least Windows XP SP1
 // (GetProcessId requires it)
 #ifndef _WIN32_WINNT
-# define _WIN32_WINNT 0x0501
+# define _WIN32_WINNT 0x0701
 #endif
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -43,7 +43,7 @@ namespace node {
     fprintf(stderr, "Not implemented: %s\n", #name);
 
 const char *winapi_strerror(const int errorno);
-void winapi_perror(const char* prefix);
+void winapi_perror(const char* prefix = NULL);
 
 }
 

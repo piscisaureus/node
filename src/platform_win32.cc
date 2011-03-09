@@ -45,7 +45,7 @@ const char *winapi_strerror(const int errorno) {
 
 
 // Does the about the same as perror(), but for windows api functions
-void winapi_perror(const char* prefix = NULL) {
+void winapi_perror(const char* prefix) {
   DWORD errorno = GetLastError();
   const char *errmsg = NULL;
 
