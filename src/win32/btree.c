@@ -5,6 +5,8 @@
 
 typedef struct type type;
 
+# define noinline                   __attribute__ ((noinline))
+
 struct type {
   type *left;
   type *right;
@@ -30,77 +32,78 @@ type *tree = 0;
 
 #define compare(a, b) ((a)->val - (b)->val)
 #define avl_max(a, b) ((a) > (b) ? (a) : (b))
-#define avl_height(node) ((node) ? (node)->height : -1)
+//#define avl_height(node) ((node) ? (node)->height : -1)
 
-  inline void avl_update_height(type *node) {
-    node->height = avl_max(avl_height(node->left), avl_height(node->right)) + 1;
+  inline int avl_height(type *node) {
+    return node ? node->height : -1;
   }
 
-  inline void avl_rot_left(type **pivot) {
-    type *child = (*pivot)->left;
-    (*pivot)->left = child->right;
-    child->right = *pivot;
-    avl_update_height(*pivot);
-    avl_update_height(child);
-    *pivot = child;
+  inline type *avl_update_height(type *node) {
+    int h1 = node->left ? node->left->height + 1 : 0;
+    int h2 = node->right ? node->right->height + 1 : 0;
+    node->height = h1 > h2 ? h1 : h2;
   }
 
-  inline void avl_rot_right(type **pivot) {
-    type *child = (*pivot)->right;
-    (*pivot)->right = child->left;
-    child->left = *pivot;
-    avl_update_height(*pivot);
-    avl_update_height(child);
-    *pivot = child;
+  inline type *avl_rot_left(type *parent) {
+    type *child = parent->left;
+    parent->left = child->right;
+    child->right = parent;
+    return child;
   }
 
-  inline void avl_rot_left_double(type **pivot) {
-    avl_rot_right(&((*pivot)->left));
-    avl_rot_left(pivot);
-  }
-
-  inline void avl_rot_right_double(type **pivot) {
-    avl_rot_left(&((*pivot)->right));
-    avl_rot_right(pivot);
+  inline type *avl_rot_right(type *parent) {
+    type *child = parent->right;
+    parent->right = child->left;
+    child->left = parent;
+    return child;
   }
 
   inline int avl_balance(type *node) {
     return avl_height(node->left) - avl_height(node->right);
   }
 
-  inline void avl_rebalance(type **tree) {
-    type **parent = tree;
-    int balance = avl_balance(*parent);
+  static noinline type *avl_rebalance(type *parent) {
+    int balance = avl_balance(parent);
     if (balance > 1) {
-      // Need to rotate counter-clockwise
-      if (avl_balance((*parent)->left) < 0) {
-        avl_rot_left_double(parent);
-      } else {
-        avl_rot_left(parent);
+      // Left branch is too high
+      if (avl_balance(parent->left) < 0) {
+        // Need to rotate the right subtree first
+        type *child = parent->left;
+        child->height -= 1;
+        child->right->height += 1;
+        parent->left = avl_rot_right(child);
       }
+      // Left rotation
+      parent->height -= 2;
+      return avl_rot_left(parent);
     } else if (balance < -1) {
-      // Need to rotate clockwise
-      if (avl_balance((*parent)->right) > 0) {
-        avl_rot_right_double(parent);
-      } else {
-        avl_rot_right(parent);
+      // Right branch is too high
+      if (avl_balance(parent->right) > 0) {
+        // Need to rotate the right subtree first
+        type *child = parent->right;
+        child->height -= 1;
+        child->left->height += 1;
+        parent->right = avl_rot_left(child);
       }
+      // Right rotation
+      parent->height -= 2;
+      return avl_rot_right(parent);
     }
+    return parent;
   }
 
-  static void avl_insert(type **tree, type *node) {
-    type **parent = tree;
-    if (*parent) {
-      if (compare(*parent, node) < 0) {
-        avl_insert(&((*parent)->left), node);
+  static noinline type *avl_insert(type *parent, type *node) {
+    if (parent) {
+      if (compare(parent, node) < 0) {
+        parent->left = avl_insert(parent->left, node);
       } else {
-        avl_insert(&((*parent)->right), node);
+        parent->right = avl_insert(parent->right, node);
       }
-      avl_update_height(*parent);
-      avl_rebalance(parent);
+      avl_update_height(parent);
+      return avl_rebalance(parent);
     } else {
       node->height = 0;
-      *parent = node;
+      return node;
     }
   }
 
@@ -115,17 +118,19 @@ type *tree = 0;
 
   inline void avl_insert_random(type **tree, type *node) {
     node->val = rand();
-    avl_insert(tree, node);
+    *tree = avl_insert(*tree, node);
   }
 
   int main() {
-    int cnt = 10000000;
+    int cnt = 1000000;
     type *nodes = (type*)malloc(cnt * sizeof(type));
     memset(nodes, 0, sizeof(type) * cnt);
     int i;
     for (i = 0; i < cnt; i++) {
       avl_insert_random(&tree, nodes + i);
     }
+    //avl_print(tree, 0);
+    fprintf(stderr, " -- %d\n", i);
     return 0;
   }
 
