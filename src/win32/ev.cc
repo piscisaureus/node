@@ -90,6 +90,7 @@ void iocp_init() {
 
 void CALLBACK ev_timer_handle_apc(void *arg, DWORD timeLow, DWORD timeHigh) {
   ev_timer *w = (ev_timer*)arg;
+  int called = 0;
 
   if (w->repeat <= 0)
     ev_timer_stop(w);
@@ -97,8 +98,10 @@ void CALLBACK ev_timer_handle_apc(void *arg, DWORD timeLow, DWORD timeHigh) {
   for (int i = EV_NUMPRI; i >= 0; i--) {
     ev_invoke_static(ev_check, i, EV_CHECK);
 
-    if (w->priority == i)
+    if (!called && EV_ABSPRI(w->priority) == i) {
+      called = 1;
       w->cb(w, EV_TIMER);
+    }
 
     while (ev_idle_list[i])
       ev_invoke_static(ev_idle, i, EV_IDLE);
@@ -122,8 +125,9 @@ static inline void iocp_poll() {
   BOOL success;
   DWORD bytes;
   ULONG_PTR *key;
-  OVERLAPPED_ENTRY overlapped_entry;
+  OVERLAPPED_ENTRY overlapped_entry = {0};
   IocpPacket *packet;
+  int called;
 
 
   for (int i = EV_NUMPRI; i >= 0; i--)
@@ -134,7 +138,7 @@ static inline void iocp_poll() {
 //                                      &key,
 //                                      (LPOVERLAPPED*)packet);
 
-  ULONG count;
+  ULONG count = 0;
   success = GetQueuedCompletionStatusEx(
     iocp,
     &overlapped_entry,
@@ -147,15 +151,17 @@ static inline void iocp_poll() {
   if (!success && !count)
     iocp_fatal_error("GetQueuedCompletionStatusEx");
 
-  if (!count)
-    return;
+  //if (!count || !overlapped_entry.lpOverlapped)
+  //  return;
 
   packet = OverlappedToPacket(overlapped_entry.lpOverlapped);
 
+  called = 0;
   for (int i = EV_NUMPRI; i >= 0; i--) {
     ev_invoke_static(ev_check, i, EV_CHECK);
 
-    if (packet->priority == i) {
+    if (packet && !called && EV_ABSPRI(packet->priority) == i) {
+      called = 1;
       packet->callback(packet);
     }
 
