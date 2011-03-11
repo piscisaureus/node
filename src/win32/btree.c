@@ -3,20 +3,24 @@
 #include <malloc.h>
 #include <string.h>
 
-typedef struct type type;
+typedef struct ntype ntype;
 
 # define noinline                   __attribute__ ((noinline))
 
-struct type {
-  type *left;
-  type *right;
+struct ntype {
+  ntype *left;
+  ntype *right;
   int height;
-  int val;
+  int value;
 };
 
-type *tree = 0;
+typedef ntype *nptr;
 
-/*inline int compare(type *a, type *b) {
+#define vtype int
+
+ntype *tree = 0;
+
+/*inline int compare(ntype *a, ntype *b) {
   return a->val - b->val;
 }
 
@@ -24,112 +28,207 @@ type *tree = 0;
     return a > b ? a : b;
   }
 
-  inline int avl_height(type *node) {
+  inline int avl_height(ntype *node) {
     return node ? node->height : -1;
   }
 */
-#define inline static
 
-#define compare(a, b) ((a)->val - (b)->val)
+
+#define compare(a, b) (a - b)
+#define val(a) ((a)->value)
 #define avl_max(a, b) ((a) > (b) ? (a) : (b))
-//#define avl_height(node) ((node) ? (node)->height : -1)
+/*#define avl_height(node) ((node) ? (node)->height : -1) */
 
-  inline int avl_height(type *node) {
+  static inline int avl_height(ntype *node) {
     return node ? node->height : -1;
   }
 
-  inline type *avl_update_height(type *node) {
+  static inline void *avl_update_height(ntype *node) {
     int h1 = node->left ? node->left->height + 1 : 0;
     int h2 = node->right ? node->right->height + 1 : 0;
     node->height = h1 > h2 ? h1 : h2;
   }
 
-  inline type *avl_rot_left(type *parent) {
-    type *child = parent->left;
-    parent->left = child->right;
-    child->right = parent;
-    return child;
+  static inline void avl_rot_left(ntype **parent) {
+    ntype *n1 = *parent;
+    ntype *n2 = n1->left;
+    n1->left = n2->right;
+    n2->right = n1;
+    *parent = n2;
   }
 
-  inline type *avl_rot_right(type *parent) {
-    type *child = parent->right;
-    parent->right = child->left;
-    child->left = parent;
-    return child;
+  static inline void avl_rot_right(ntype **parent) {
+    ntype *n1 = *parent;
+    ntype *n2 = n1->right;
+    n1->right = n2->left;
+    n2->left = n1;
+    *parent = n2;
   }
 
-  inline int avl_balance(type *node) {
+  static inline int avl_balance(ntype *node) {
     return avl_height(node->left) - avl_height(node->right);
   }
 
-  static noinline type *avl_rebalance(type *parent) {
-    int balance = avl_balance(parent);
+  static void avl_rebalance(ntype **parent) {
+    int balance = avl_balance(*parent);
+
     if (balance > 1) {
-      // Left branch is too high
-      if (avl_balance(parent->left) < 0) {
-        // Need to rotate the right subtree first
-        type *child = parent->left;
-        child->height -= 1;
-        child->right->height += 1;
-        parent->left = avl_rot_right(child);
+      /* Left branch is too high */
+      if (avl_balance((*parent)->left) < 0) {
+        /* Need to rotate the right subtree first */
+        ntype **child = &((*parent)->left);
+        (*child)->height --;
+        (*child)->right->height ++;
+        avl_rot_right(child);
       }
-      // Left rotation
-      parent->height -= 2;
-      return avl_rot_left(parent);
+
+      /* Left rotation */
+      (*parent)->height -= 2;
+      avl_rot_left(parent);
+
     } else if (balance < -1) {
-      // Right branch is too high
-      if (avl_balance(parent->right) > 0) {
-        // Need to rotate the right subtree first
-        type *child = parent->right;
-        child->height -= 1;
-        child->left->height += 1;
-        parent->right = avl_rot_left(child);
+      /* Right branch is too high */
+      if (avl_balance((*parent)->right) > 0) {
+        /* Need to rotate the left subtree first */
+        ntype **child = &((*parent)->right);
+        (*child)->height --;
+        (*child)->left->height ++;
+        avl_rot_left(child);
       }
-      // Right rotation
-      parent->height -= 2;
-      return avl_rot_right(parent);
+
+      /* Right rotation */
+      (*parent)->height -= 2;
+      avl_rot_right(parent);
     }
-    return parent;
   }
 
-  static noinline type *avl_insert(type *parent, type *node) {
-    if (parent) {
-      if (compare(parent, node) < 0) {
-        parent->left = avl_insert(parent->left, node);
+  static void avl_insert(ntype **parent, ntype *node) {
+    if (*parent) {
+      if (compare(val((*parent)), val(node)) < 0) {
+        avl_insert(&((*parent)->left), node);
       } else {
-        parent->right = avl_insert(parent->right, node);
+        avl_insert(&((*parent)->right), node);
       }
-      avl_update_height(parent);
-      return avl_rebalance(parent);
+      avl_update_height(*parent);
+      avl_rebalance(parent);
     } else {
-      node->height = 0;
-      return node;
+      avl_update_height(node);
+      *parent = node;
     }
   }
 
-  inline void avl_print(type *tree, int indent) {
+  static inline void avl_splice(ntype **node) {
+    ntype *removed = *node;
+    (*node) = removed->left;
+    if (removed->right) {
+      avl_insert(node, removed->right);
+    }
+    if (*node) {
+      avl_update_height(*node);
+      avl_rebalance(node);
+    }
+  }
+
+  static int avl_delete(ntype **parent, ntype *node) {
+    if ((*parent) == node) {
+      /* Delete the node */
+      /* Reparent the node's children, if any */
+      avl_splice(parent);
+      return 1;
+
+    } else if (*parent) {
+      int d = compare(val(*parent), val(node));
+      if ((d <= 0 && avl_delete(&(*parent)->left, node)) ||
+          (d >= 0 && avl_delete(&(*parent)->right, node))) {
+        avl_update_height(*parent);
+        avl_rebalance(parent);
+        return 1;
+      }
+    }
+
+    /* Not found */
+    return 0;
+  }
+
+  static noinline ntype *avl_find_delete(ntype **parent, vtype value) {
+    if (*parent) {
+      ntype *node;
+
+      int d = compare(val(*parent), value);
+      if (d == 0) {
+        node = *parent;
+        avl_splice(parent);
+        return node;
+
+      } else if ((d < 0 && (node = avl_find_delete(&(*parent)->left, value))) ||
+                 (d > 0 && (node = avl_find_delete(&(*parent)->right, value)))) {
+        avl_update_height(*parent);
+        avl_rebalance(parent);
+        return node;
+      }
+    }
+
+    /* Not found */
+    return NULL;
+  }
+
+  static noinline ntype *avl_find(ntype *parent, vtype value) {
+    if (parent) {
+      int d = compare(val(parent), value);
+      if (d < 0) {
+        return avl_find(parent->left, value);
+      } else if (d > 0) {
+        return avl_find(parent->right, value);
+      } else {
+        return parent;
+      }
+    }
+    return NULL;
+  }
+
+
+  inline void avl_print(ntype *tree, int indent) {
     if (!tree) return;
     avl_print(tree->left, indent + 1);
     int j;
     for (j = 0; j < indent; j++) fprintf(stderr, " ");
-    fprintf(stderr, "val=%d h=%d\n", tree->val, tree->height);
+    fprintf(stderr, "val=%d h=%d\n", tree->value, tree->height);
     avl_print(tree->right, indent + 1);
   }
 
-  inline void avl_insert_random(type **tree, type *node) {
-    node->val = rand();
-    *tree = avl_insert(*tree, node);
+  inline int r() {
+    return rand() / (RAND_MAX / 20000);
+  }
+
+  inline void avl_insert_random(ntype **tree, int v) {
+    ntype *node = (ntype*)malloc(sizeof(ntype));
+    memset(node, 0, sizeof(ntype));
+    node->value = v;
+    avl_insert(tree, node);
+  }
+
+  inline void avl_delete_random(ntype **tree, int v) {
+    ntype *node = avl_find_delete(tree, v);
+    if (node) {
+      free(node);
+    }
+  }
+
+  inline void avl_delete_random2(ntype **tree, int v) {
+    ntype *node = avl_find(*tree, v);
+    if (node) {
+      avl_delete(tree, node);
+      free(node);
+    }
   }
 
   int main() {
-    int cnt = 1000000;
-    type *nodes = (type*)malloc(cnt * sizeof(type));
-    memset(nodes, 0, sizeof(type) * cnt);
-    int i;
+    int i, cnt = 100;
     for (i = 0; i < cnt; i++) {
-      avl_insert_random(&tree, nodes + i);
+      avl_insert_random(&tree, r());
     }
-    //avl_print(tree, 0);
+    avl_delete_random2(&tree, 18467);
+    avl_print(tree, 0);
     fprintf(stderr, " -- %d\n", i);
     return 0;
   }
