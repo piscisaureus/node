@@ -88,44 +88,56 @@ void iocp_init() {
     }                                                           \
   } while (0)
 
-void CALLBACK ev_timer_handle_apc(void *arg, DWORD timeLow, DWORD timeHigh) {
-  ev_timer *w = (ev_timer*)arg;
-  int called = 0;
+void ev_async_handle_packet(IocpPacket *packet) {
+  ev_async *w = packet->w_async;
 
-  if (w->repeat <= 0)
-    ev_timer_stop(w);
-
-  for (int i = EV_NUMPRI; i >= 0; i--) {
-    ev_invoke_static(ev_check, i, EV_CHECK);
-
-    if (!called && EV_ABSPRI(w->priority) == i) {
-      called = 1;
-      w->cb(w, EV_TIMER);
-    }
-
-    while (ev_idle_list[i])
-      ev_invoke_static(ev_idle, i, EV_IDLE);
+  if (w == NULL) {
+    /* The watcher has been stopped while this packet was in the queue. */
+    /* Free the packet, don't call any callbacks */
+    FreeIocpPacket(packet);
+  } else {
+    /* Clear the sent status and call the watcher's callback */
+    /* Don't release the packet, it will be released only after the watcher */
+    /* is stopped. */
+    w->sent = 0;
+    w->cb(w, EV_ASYNC);
   }
-
-  for (int i = EV_NUMPRI; i >= 0; i--)
-    ev_invoke_static(ev_prepare, i, EV_PREPARE);
 }
 
 
-void ev_async_handle_packet(IocpPacket *packet) {
-  ev_async *w = packet->w_async;
-  FreeIocpPacket(packet);
-  /* Clear the sent status before invoking the watcher callback */
-  w->sent = 0;
-  if (w->active)
-    w->cb(w, EV_ASYNC);
+void CALLBACK ev_timer_timeout_cb(void *data, BOOLEAN fired) {
+  assert(fired);
+  ev_timer *w = (ev_timer*)data;
+
+  w->sent = 1;
+
+  BOOL success = PostQueuedCompletionStatus(iocp, 0, 0, PacketToOverlapped(w->packet));
+  if (!success)
+    iocp_fatal_error("PostQueuedCompletionStatus");
+}
+
+
+void ev_timer_handle_packet(IocpPacket *packet) {
+  ev_timer *w = packet->w_timer;
+
+  if (w == NULL) {
+    /* The watcher has been stopped while this packet was in the queue. */
+    /* Free the packet, don't call any callbacks */
+    FreeIocpPacket(packet);
+  } else {
+    /* Clear the sent status and call the watcher's callback */
+    /* Don't release the packet, it will be released only after the watcher */
+    /* is stopped. */
+    w->sent = 0;
+    w->cb(w, EV_TIMER);
+  }
 }
 
 static inline void iocp_poll() {
   BOOL success;
   DWORD bytes;
-  ULONG_PTR *key;
-  OVERLAPPED_ENTRY overlapped_entry = {0};
+  DWORD key;
+  OVERLAPPED *overlapped;
   IocpPacket *packet;
   int called;
 
@@ -133,28 +145,16 @@ static inline void iocp_poll() {
   for (int i = EV_NUMPRI; i >= 0; i--)
     ev_invoke_static(ev_prepare, i, EV_PREPARE);
 
-//  success = GetQueuedCompletionStatus(iocp,
-//                                      &bytes,
-//                                      &key,
-//                                      (LPOVERLAPPED*)packet);
+  success = GetQueuedCompletionStatus(iocp,
+                                      &bytes,
+                                      &key,
+                                      &overlapped,
+                                      INFINITE);
 
-  ULONG count = 0;
-  success = GetQueuedCompletionStatusEx(
-    iocp,
-    &overlapped_entry,
-    1,
-    &count,
-    INFINITE,
-    TRUE
-  );
+  if (!success && !overlapped)
+    iocp_fatal_error("GetQueuedCompletionStatus");
 
-  if (!success && !count)
-    iocp_fatal_error("GetQueuedCompletionStatusEx");
-
-  //if (!count || !overlapped_entry.lpOverlapped)
-  //  return;
-
-  packet = OverlappedToPacket(overlapped_entry.lpOverlapped);
+  packet = OverlappedToPacket(overlapped);
 
   called = 0;
   for (int i = EV_NUMPRI; i >= 0; i--) {

@@ -244,6 +244,7 @@ typedef struct ev_async ev_async;
 
 struct ev_async {
   EV_BASE(ev_async)
+  IocpPacket *packet;
   volatile int sent;
 };
 
@@ -254,30 +255,49 @@ inline void ev_async_set(ev_async *w) {
 
 inline void ev_async_init(ev_async *w, EV_WATCHER_CB(ev_async)) {
   ev_init(w, cb);
-  w->sent = 0;
 }
 
 inline void ev_async_start(ev_async *w) {
-  w->active = true;
+  if (w->active)
+    return;
+  w->active = 1;
+  w->sent = 0;
+
+  /* Preallocate an iocp packet that can be sent by ev_async_send */
+  w->packet = AllocIocpPacket();
+  w->packet->w_async = w;
+  w->packet->priority = w->priority;
+  w->packet->callback = &ev_async_handle_packet;
 }
 
 inline void ev_async_stop(ev_async *w) {
-  w->active = false;
+  if (!w->active)
+    return;
+  w->active = 0;
+
+  /* Determine what to do with the iocp packet that we preallocated */
+  /* Note that ev_async_stop can never compete with ev_async_send called */
+  /* by another thread, because that would constitute a race condition. */
+  /* However it is possible that the packet has been queued to the */
+  /* completion port already, so may not be able to free it right now. */
+  if (w->sent) {
+    /* The packet has been queued to the iocp port - */
+    /* Set the packet's w_async member to null, so ev_async_handle_packet */
+    /* knows that it should just release the packet without calling any */
+    /* callbacks. */
+    w->packet->w_async = NULL;
+  } else {
+    /* Nothing is happening to the packet, just free it */
+    FreeIocpPacket(w->packet);
+  }
 }
 
 inline void ev_async_send(ev_async *w) {
   assert(w->active);
 
-  if (w->sent)
-    return;
   w->sent = 1;
 
-  IocpPacket *packet = AllocIocpPacket();
-  packet->w_async = w;
-  packet->callback = &ev_async_handle_packet;
-  packet->priority = w->priority;
-
-  BOOL success = PostQueuedCompletionStatus(iocp, 0, 0, PacketToOverlapped(packet));
+  BOOL success = PostQueuedCompletionStatus(iocp, 0, 0, PacketToOverlapped(w->packet));
   if (!success)
     iocp_fatal_error("PostQueuedCompletionStatus");
 }
@@ -295,9 +315,12 @@ struct ev_timer {
   double after;
   double repeat;
   HANDLE timer;
+  IocpPacket *packet;
+  volatile int sent;
 };
 
-void CALLBACK ev_timer_handle_apc(void *arg, DWORD timeLow, DWORD timeHigh);
+void CALLBACK ev_timer_timeout_cb(void *data, BOOLEAN fired);
+void ev_timer_handle_packet(IocpPacket *packet);
 
 inline void ev_timer_set(ev_timer *w, double after, double repeat) {
   w->after = after;
@@ -311,36 +334,31 @@ inline void ev_timer_init(ev_timer *w, EV_WATCHER_CB(ev_timer), double after,
 }
 
 inline void ev_timer_start(ev_timer *w) {
-  LARGE_INTEGER due;
-  LONG period;
-
   if (w->active)
     return;
-  w->active = true;
+  w->active = 1;
+  w->sent = 0;
 
-  w->timer = CreateWaitableTimerW(NULL, FALSE, NULL);
-  if (!w->timer)
-    iocp_fatal_error("CreateWaitableTimerW");
+  /* Preallocate an iocp packet that can be sent by ev_timer_timeout_cb */
+  w->packet = AllocIocpPacket();
+  w->packet->w_timer = w;
+  w->packet->priority = w->priority;
+  w->packet->callback = &ev_timer_handle_packet;
 
-  /* Calculate timeout */
-  /* 1 tick per 100ns, negative value denotes relative time */
-  due.QuadPart = w->after > 0
-               ? w->after * -10000000LL
-               : -1LL;
+  /* Calculate due time and repeat period */
+  DWORD due = w->after * 1000L;
+  DWORD period = w->repeat > 0
+               ? w->repeat * 1000L
+               : 0L;
 
-  /* Calculate repeat period */
-  /* 1 tick per 1ms */
-  period = w->repeat > 0
-         ? w->repeat * 1000L
-         : 0L;
-
-  if (!SetWaitableTimer(w->timer,
-                        &due,
-                        period,
-                        &ev_timer_handle_apc,
-                        (void*)w,
-                        FALSE))
-    iocp_fatal_error("SetWaitableTimer");
+  if (!CreateTimerQueueTimer(&w->timer,
+                             NULL,
+                             &ev_timer_timeout_cb,
+                             (void*)w,
+                             due,
+                             period,
+                             WT_EXECUTEINTIMERTHREAD))
+    iocp_fatal_error("CreateTimerQueueTimer");
 }
 
 inline void ev_timer_stop(ev_timer *w) {
@@ -348,17 +366,33 @@ inline void ev_timer_stop(ev_timer *w) {
     return;
   w->active = false;
 
-  if (!CancelWaitableTimer(w->timer))
-    iocp_fatal_error("CancelWaitableTimer");
+  /* MSDN states that specifying hCompletionEvent = INVALID_HANDLE_VALUE */
+  /* ensures that the callback is completed before the timer is deleted, */
+  /* so we can be sure that w->sent is accurate and the timer is stopped */
+  /* after this. */
+  /* It also says that should this function fail with an arror, */
+  /* we should just retry. */
+  while (!DeleteTimerQueueTimer(NULL, w->timer, INVALID_HANDLE_VALUE))
+    Sleep(0);
 
-  CloseHandle(w->timer);
+  /* Determine what to do with the iocp packet that we preallocated */
+  /* Note that ev_async_stop can never compete with ev_async_send called */
+  /* by another thread, because that would constitute a race condition. */
+  /* However it is possible that the packet has been queued to the */
+  /* completion port already, so may not be able to free it right now. */
+  if (w->sent) {
+    /* The packet has been queued to the iocp port - */
+    /* Set the packet's w_timer member to null, so ev_timer_timeout_cb */
+    /* knows that it should just release the packet without calling any */
+    /* callbacks. */
+    w->packet->w_timer = NULL;
+  } else {
+    /* Nothing is happening to the packet, just free it */
+    FreeIocpPacket(w->packet);
+  }
 }
 
 inline void ev_timer_again(ev_timer *w) {
-  /* todo: optimize this */
-  /* Instead of stop, destroy, create, start, it would be better to just */
-  /* call SetWaitableTimer to cancel outstanding APCs and set the timeout */
-  /* to the same value as repeat */
   ev_timer_stop(w);
 
   if (w->repeat > 0) {
