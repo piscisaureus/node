@@ -11,6 +11,10 @@ ev_prepare *ev_prepare_list[EV_NUMPRI];
 ev_check *ev_check_list[EV_NUMPRI];
 ev_idle *ev_idle_list[EV_NUMPRI];
 
+ev_prepare *ev_prepare_invoke_next = NULL;
+ev_check *ev_check_invoke_next = NULL;
+ev_idle *ev_idle_invoke_next = NULL;
+
 ev_tstamp ev_rt_now;
 
 typedef struct _OVERLAPPED_ENTRY {
@@ -81,11 +85,24 @@ void iocp_init() {
   memset(&ev_idle_list, 0, sizeof(ev_idle_list));
 }
 
+/* The callbacks called by ev_invoke_static could start and stop itself */
+/* or any other watcher. */
+/* We must prevent a watcher that's started from being called immediately, */
+/* which is done by inserting watchers in front of the queue, so it is */
+/* always inserted before the watcher whose callback is being run. */
+/* We must also make sure that when a watcher is stopped we still know what */
+/* to run next, even if it is the current watcher that's stopping itself. */
+/* This is done by caching w->next in a global variable as ev_*_invoke_next */
+/* ev_*_stop updates that global if appropriate. */
 #define ev_invoke_static(type, abs_pri, events)                 \
   do {                                                          \
-    for (type *w = type##_list[abs_pri]; w; w = w->next) {      \
+    type##_invoke_next = type##_list[abs_pri];                  \
+    while (type##_invoke_next) {                                \
+      type *w = type##_invoke_next;                             \
+      type##_invoke_next = w->next;                             \
       w->cb(w, events);                                         \
     }                                                           \
+    type##_invoke_next = NULL;                                  \
   } while (0)
 
 void ev_async_handle_packet(IocpPacket *packet) {

@@ -190,6 +190,7 @@ enum {
 #define EV_STATIC_DEFINE(type)                              \
   typedef struct type type;                                 \
   extern type *type##_list[EV_NUMPRI];                      \
+  extern type *type##_invoke_next;                          \
                                                             \
   struct type {                                             \
     EV_BASE(type)                                           \
@@ -228,6 +229,8 @@ enum {
     int abs_pri = EV_ABSPRI(w->priority);                   \
     if (type##_list[abs_pri] == w)                          \
       type##_list[abs_pri] = w->next;                       \
+    if (type##_invoke_next == w)                            \
+      type##_invoke_next = w->next;                         \
     if (w->next)                                            \
       w->next->prev = w->prev;                              \
     if (w->prev)                                            \
