@@ -17,24 +17,6 @@ ev_idle *ev_idle_invoke_next = NULL;
 
 ev_tstamp ev_rt_now;
 
-typedef struct _OVERLAPPED_ENTRY {
-  ULONG_PTR    lpCompletionKey;
-  LPOVERLAPPED lpOverlapped;
-  ULONG_PTR    Internal;
-  DWORD        dwNumberOfBytesTransferred;
-} OVERLAPPED_ENTRY, *LPOVERLAPPED_ENTRY;
-
-BOOL WINAPI GetQueuedCompletionStatusEx(
-  HANDLE CompletionPort,
-  LPOVERLAPPED_ENTRY lpCompletionPortEntries,
-  ULONG ulCount,
-  PULONG ulNumEntriesRemoved,
-  DWORD dwMilliseconds,
-  BOOL fAlertable
-);
-
-
-
 void iocp_fatal_error(const char *syscall) {
   DWORD errorno = GetLastError();
   char *errmsg = NULL;

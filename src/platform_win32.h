@@ -4,7 +4,7 @@
 // Require at least Windows XP SP1
 // (GetProcessId requires it)
 #ifndef _WIN32_WINNT
-# define _WIN32_WINNT 0x0701
+# define _WIN32_WINNT 0x0501
 #endif
 
 #ifndef WIN32_LEAN_AND_MEAN
