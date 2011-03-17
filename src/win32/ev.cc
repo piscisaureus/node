@@ -4,7 +4,7 @@ extern "C" {
 #include "ev.h"
 #include <stdio.h>
 
-HANDLE iocp;
+HANDLE iocp = NULL;
 IocpPacket *free_iocp_packet_list = NULL;
 
 ev_prepare *ev_prepare_list[EV_NUMPRI];
@@ -28,7 +28,6 @@ void iocp_fatal_error(const char *syscall) {
     errmsg = strdup("Unknown error\n");
   }
 
-  fprintf(stderr, "Event loop died with fatal error\n");
   if (syscall) {
     fprintf(stderr, "%s: (%d) %s", syscall, errorno, errmsg);
   } else {
@@ -87,7 +86,7 @@ void iocp_init() {
     type##_invoke_next = NULL;                                  \
   } while (0)
 
-void ev_async_handle_packet(IocpPacket *packet) {
+void ev_async_handle_packet(HANDLE handle, IocpPacket *packet) {
   ev_async *w = packet->w_async;
 
   if (w == NULL) {
@@ -116,7 +115,7 @@ void CALLBACK ev_timer_timeout_cb(void *data, BOOLEAN fired) {
 }
 
 
-void ev_timer_handle_packet(IocpPacket *packet) {
+void ev_timer_handle_packet(HANDLE handle, IocpPacket *packet) {
   ev_timer *w = packet->w_timer;
 
   if (w == NULL) {
@@ -135,11 +134,10 @@ void ev_timer_handle_packet(IocpPacket *packet) {
 static inline void iocp_poll() {
   BOOL success;
   DWORD bytes;
-  DWORD key;
+  ULONG_PTR key;
   OVERLAPPED *overlapped;
   IocpPacket *packet;
   int called;
-
 
   for (int i = EV_NUMPRI; i >= 0; i--)
     ev_invoke_static(ev_prepare, i, EV_PREPARE);
@@ -161,7 +159,7 @@ static inline void iocp_poll() {
 
     if (packet && !called && EV_ABSPRI(packet->priority) == i) {
       called = 1;
-      packet->callback(packet);
+      packet->callback((HANDLE)key, packet);
     }
 
     while (ev_idle_list[i])

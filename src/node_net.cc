@@ -91,6 +91,11 @@ static Persistent<FunctionTemplate> recv_msg_template;
           String::New("Bad file descriptor argument"))); \
   }
 
+#define CB_ARG(a)                                        \
+  if (!(a)->IsFunction()) {                              \
+    return ThrowException(Exception::TypeError(          \
+          String::New("Bad callback argument")));        \
+  }                                                      \
 
 static inline bool SetCloseOnExec(int fd) {
 #ifdef __POSIX__
@@ -104,8 +109,9 @@ static inline bool SetCloseOnExec(int fd) {
 
 static inline bool SetNonBlock(int fd) {
 #ifdef __MINGW32__
-  unsigned long value = 1;
-  return (ioctlsocket(_get_osfhandle(fd), FIONBIO, &value) == 0);
+  //unsigned long value = 1;
+  //return (ioctlsocket(_get_osfhandle(fd), FIONBIO, &value) == 0);
+  return 1;
 #else // __POSIX__
   return (fcntl(fd, F_SETFL, O_NONBLOCK) != -1);
 #endif
@@ -233,7 +239,9 @@ static Handle<Value> Socket(const Arguments& args) {
 #ifdef __POSIX__
   int fd = socket(domain, type, 0);
 #else // __MINGW32__
-  int fd = _open_osfhandle(socket(domain, type, 0), 0);
+  SOCKET sock = socket(domain, type, 0);
+  int fd = _open_osfhandle(sock, 0);
+  iocp_associate(sock);
 #endif
 
   if (fd < 0) return ThrowException(ErrnoException(errno, "socket"));
@@ -260,6 +268,7 @@ static Handle<Value> Socket(const Arguments& args) {
 
 // NOT AT ALL THREAD SAFE - but that's okay for node.js
 // (yes this is all to avoid one small heap alloc)
+// (and it's not even needed because the sockaddr structs could have been passed by reference :-/)
 static struct sockaddr *addr;
 static socklen_t addrlen;
 static inline Handle<Value> ParseAddressArgs(Handle<Value> first,
@@ -417,43 +426,59 @@ static Handle<Value> Shutdown(const Arguments& args) {
 }
 
 
-// Connect with unix
-//   t.connect(fd, "/tmp/socket")
-//
+void AfterConnect(HANDLE handle, IocpPacket *packet) {
+  HandleScope scope;
+  int fd;
+  DWORD bytes;
+  Persistent<Function> *cb = cb_unwrap(packet->accept_data.js_cb);
+  Handle<Value> argv[1];
+
+  if (!GetOverlappedResult(handle, PacketToOverlapped(packet), &bytes, FALSE)) {
+    argv[0] = ErrnoException(GetLastError(), "ConnectEx");
+  } else {
+    argv[0] = Undefined();
+  }
+
+  FreeIocpPacket(packet);
+
+  (*cb)->Call(Context::GetCurrent()->Global(), 1, argv);
+  cb_destroy(cb);
+}
+
 // Connect with TCP or UDP
-//   t.connect(fd, 80, "192.168.11.2")
-//   t.connect(fd, 80, "::1")
-//   t.connect(fd, 80)
-//  the third argument defaults to "::1"
+//   t.connect(fd, 80, "192.168.11.2", cb)
+//   t.connect(fd, 80, "::1", cb)
 static Handle<Value> Connect(const Arguments& args) {
   HandleScope scope;
+  IocpPacket *packet;
+  SOCKET sock;
+  DWORD bytes;
 
-  if (args.Length() < 2) {
+  if (args.Length() < 4) {
     return ThrowException(Exception::TypeError(
-          String::New("Must have at least two args")));
+          String::New("Must have four args")));
   }
 
   FD_ARG(args[0])
+  CB_ARG(args[3])
+
+  sock = (SOCKET)_get_osfhandle(fd);
+  if (sock == -1)
+    return ThrowException(ErrnoException(errno, "_get_osfhandle"));
 
   Handle<Value> error = ParseAddressArgs(args[1], args[2], false);
-  if (!error.IsEmpty()) return ThrowException(error);
+  if (!error.IsEmpty())
+    return ThrowException(error);
 
-#ifdef __POSIX__
-  int r = connect(fd, addr, addrlen);
+  packet = AllocIocpPacket();
+  ClearOverlapped(packet);
+  packet->priority = 0;
+  packet->callback = &AfterConnect;
+  packet->connect_data.js_cb = cb_persist(args[3]);
 
-  if (r < 0 && errno != EINPROGRESS) {
-    return ThrowException(ErrnoException(errno, "connect"));
-  }
-#else // __MINGW32__
-  int r = connect(_get_osfhandle(fd), addr, addrlen);
-
-  if (r == SOCKET_ERROR) {
-    int wsaErrno = WSAGetLastError();
-    if (wsaErrno != WSAEWOULDBLOCK && wsaErrno != WSAEINPROGRESS) {
-      return ThrowException(ErrnoException(wsaErrno, "connect"));
-    }
-  }
-#endif // __MINGW32__
+  if (!pConnectEx(sock, addr, addrlen, NULL, 0, &bytes, PacketToOverlapped(packet)) &&
+        WSAGetLastError() != ERROR_IO_PENDING)
+    return ThrowException(ErrnoException(WSAGetLastError(), "ConnectEx"));
 
   return Undefined();
 }
@@ -616,8 +641,53 @@ static Handle<Value> Listen(const Arguments& args) {
   return Undefined();
 }
 
+void AfterAccept(HANDLE handle, IocpPacket *packet) {
+  HandleScope scope;
+  int fd;
+  DWORD bytes;
+  Handle<Value> argv[2];
+  Persistent<Function> *cb = cb_unwrap(packet->accept_data.js_cb);
 
-// var peerInfo = t.accept(server_fd);
+  if (!GetOverlappedResult(handle, PacketToOverlapped(packet), &bytes, FALSE)) {
+    argv[0] = ErrnoException(WSAGetLastError(), "AcceptEx");
+    goto error;
+  }
+
+  if (setsockopt(packet->accept_data.peer,
+                 SOL_SOCKET,
+                 SO_UPDATE_ACCEPT_CONTEXT,
+                 (char *)&handle,
+                 sizeof(handle)) == SOCKET_ERROR) {
+    argv[0] = ErrnoException(WSAGetLastError(), "setsockopt(SO_UPDATE_ACCEPT_CONTEXT)");
+    goto error;
+  }
+
+  fd = _open_osfhandle((intptr_t)packet->accept_data.peer, 0);
+  if (fd < 0) {
+    argv[0] = ErrnoException(errno, "_open_osfhandle");
+    goto error;
+  }
+
+  free(packet->accept_data.buffer);
+  FreeIocpPacket(packet);
+
+  argv[0] = Undefined();
+  argv[1] = Integer::New(fd);
+  (*cb)->Call(Context::GetCurrent()->Global(), 2, argv);
+  cb_destroy(cb);
+  return;
+
+ error:
+  closesocket(packet->accept_data.peer);
+  free(packet->accept_data.buffer);
+  FreeIocpPacket(packet);
+
+  (*cb)->Call(Context::GetCurrent()->Global(), 1, argv);
+  cb_destroy(cb);
+}
+
+
+// var peerInfo = t.accept(server_fd, callback);
 //
 //   peerInfo.fd
 //   peerInfo.address
@@ -630,47 +700,47 @@ static Handle<Value> Accept(const Arguments& args) {
   HandleScope scope;
 
   FD_ARG(args[0])
+  CB_ARG(args[1]);
 
-  struct sockaddr_storage address_storage;
-  socklen_t len = sizeof(struct sockaddr_storage);
+  SOCKET sock;
+  SOCKET peer;
+  struct sockaddr_storage own_addr;
+  socklen_t addr_len;
+  void *buffer;
+  IocpPacket *packet;
+  DWORD bytes;
 
-#ifdef __POSIX__
-  int peer_fd = accept(fd, (struct sockaddr*) &address_storage, &len);
+  sock = (SOCKET)_get_osfhandle(fd);
+  if (sock == -1)
+    return ThrowException(ErrnoException(errno, "_get_osfhandle"));
 
-  if (peer_fd < 0) {
-    if (errno == EAGAIN) return scope.Close(Null());
-    if (errno == ECONNABORTED) return scope.Close(Null());
-    return ThrowException(ErrnoException(errno, "accept"));
-  }
-#else // __MINGW32__
-  SOCKET peer_handle = accept(_get_osfhandle(fd), (struct sockaddr*) &address_storage, &len);
+  addr_len = sizeof(struct sockaddr_in);
+  if (getsockname(sock, (sockaddr*)&own_addr, &addr_len) == SOCKET_ERROR)
+    return ThrowException(ErrnoException(WSAGetLastError(), "getsockname"));
 
-  if (peer_handle == INVALID_SOCKET) {
-    int wsaErrno = WSAGetLastError();
-    if (wsaErrno == WSAEWOULDBLOCK) return scope.Close(Null());
-    return ThrowException(ErrnoException(wsaErrno, "accept"));
-  }
+  peer = socket(own_addr.ss_family, SOCK_STREAM, IPPROTO_TCP);
+  if (peer == INVALID_SOCKET)
+    return ThrowException(ErrnoException(WSAGetLastError(), "socket"));
 
-  int peer_fd = _open_osfhandle(peer_handle, 0);
-#endif // __MINGW32__
+  iocp_associate(peer);
 
-  if (!SetSockFlags(peer_fd)) {
-#ifdef __POSIX__
-    int fcntl_errno = errno;
-#else // __MINGW32__
-    int fcntl_errno = WSAGetLastError();
-#endif // __MINGW32__
-    close(peer_fd);
-    return ThrowException(ErrnoException(fcntl_errno, "fcntl"));
-  }
+  /* AcceptEx specifies that the buffer must be big enough to at least hold */
+  /* two socket addresses plus 32 bytes */
+  buffer = malloc(sizeof(sockaddr_storage) * 2 + 32);
 
-  Local<Object> peer_info = Object::New();
+  packet = AllocIocpPacket();
+  ClearOverlapped(packet);
+  packet->priority = 0;
+  packet->callback = &AfterAccept;
+  packet->accept_data.peer = peer;
+  packet->accept_data.buffer = buffer;
+  packet->accept_data.js_cb = cb_persist(args[1]);
 
-  peer_info->Set(fd_symbol, Integer::New(peer_fd));
+  if (!pAcceptEx(sock, peer, buffer, 0, sizeof(sockaddr_storage), sizeof(sockaddr_storage), &bytes, PacketToOverlapped(packet)) &&
+      WSAGetLastError() != ERROR_IO_PENDING)
+    { wsa_perror(); abort(); }
 
-  ADDRESS_TO_JS(peer_info, address_storage, len);
-
-  return scope.Close(peer_info);
+  return Undefined();
 }
 
 

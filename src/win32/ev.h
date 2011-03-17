@@ -3,6 +3,7 @@
 #define NODE_WIN32_EV
 
 #include <platform_win32.h>
+#include <platform_win32_winsock.h>
 #include <malloc.h>
 #include <assert.h>
 #include <sys/types.h>
@@ -42,7 +43,7 @@ inline void ev_now_update(void) {
  */
 
 typedef struct IocpPacket IocpPacket;
-typedef void IocpCallback(IocpPacket* packet);
+typedef void IocpCallback(HANDLE handle, IocpPacket* packet);
 
 struct IocpPacket {
   /* The overlapped data that windows touches */
@@ -51,11 +52,26 @@ struct IocpPacket {
   /* The callback that is called by ev_poll when it dequeues a this package */
   IocpCallback *callback;
 
-  /* Watcher type specific data associated with the packet, that can be used */
-  /* by the callback */
+  /* Watcher / io operation type specific data associated with the packet */
+  /* that can be used by the callback */
   union {
-    struct ev_async *w_async; /* For libev ev_async compatibility layer */
-    struct ev_timer *w_timer; /* For libev ev_timer compatibility layer */
+    /* For libev ev_async compatibility layer */
+    struct ev_async *w_async;
+
+    /* For libev ev_timer compatibility layer */
+    struct ev_timer *w_timer;
+
+    /* used by Connect */
+    struct {
+      void *js_cb;
+    } connect_data;
+
+    /* used by Accept */
+    struct {
+      void *js_cb;
+      SOCKET peer;
+      void *buffer;
+    } accept_data;
   };
 
   /* Handler priority */
@@ -89,6 +105,10 @@ inline IocpPacket *AllocIocpPacket() {
   return packet;
 }
 
+inline void ClearOverlapped(IocpPacket *packet) {
+  memset(&packet->overlapped, 0, sizeof(packet->overlapped));
+}
+
 
 /* Free an iocp packet, or allow it to be re-used */
 inline void FreeIocpPacket(IocpPacket *packet) {
@@ -97,6 +117,15 @@ inline void FreeIocpPacket(IocpPacket *packet) {
   free_iocp_packet_list = packet;
 }
 
+
+inline void iocp_associate_impl(HANDLE handle) {
+  assert(iocp != NULL);
+  if (!CreateIoCompletionPort(handle, iocp, (ULONG_PTR)handle, 0))
+    iocp_fatal_error("CreateIoCompletionPort");
+}
+
+#define iocp_associate(handle) \
+  iocp_associate_impl((HANDLE)(handle))
 
 /* Libev compatibility layer */
 
@@ -251,7 +280,7 @@ struct ev_async {
   volatile int sent;
 };
 
-void ev_async_handle_packet(IocpPacket *packet);
+void ev_async_handle_packet(HANDLE handle, IocpPacket *packet);
 
 inline void ev_async_set(ev_async *w) {
 }
@@ -323,7 +352,7 @@ struct ev_timer {
 };
 
 void CALLBACK ev_timer_timeout_cb(void *data, BOOLEAN fired);
-void ev_timer_handle_packet(IocpPacket *packet);
+void ev_timer_handle_packet(HANDLE handle, IocpPacket *packet);
 
 inline void ev_timer_set(ev_timer *w, double after, double repeat) {
   w->after = after;
