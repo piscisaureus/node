@@ -97,6 +97,34 @@ static Persistent<FunctionTemplate> recv_msg_template;
           String::New("Bad callback argument")));        \
   }                                                      \
 
+static inline void *value_wrap(const Handle<Value>&val) {
+  Persistent<Value> *p = new Persistent<Value>();
+  *p = Persistent<Value>::New(val);
+  return static_cast<void*>(p);
+}
+
+static inline void value_dispose(void *ptr) {
+  Persistent<Value>* persistent = static_cast<Persistent<Value>*>(ptr);
+  persistent->Dispose();
+  delete persistent;
+}
+
+static inline void sock_magic(SOCKET sock) {
+  DWORD rcvbuf = 65536;
+  DWORD sndbuf = 65536;
+  BOOL nodelay = 0;
+
+  if (setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char*)&rcvbuf, sizeof(rcvbuf)) == SOCKET_ERROR)
+    wsa_perror();
+
+  if (setsockopt(sock, SOL_SOCKET, SO_SNDBUF, (char*)&sndbuf, sizeof(rcvbuf)) == SOCKET_ERROR)
+    wsa_perror();
+
+  if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (char*)&nodelay, sizeof(nodelay)) == SOCKET_ERROR)
+    wsa_perror();
+
+}
+
 static inline bool SetCloseOnExec(int fd) {
 #ifdef __POSIX__
   return (fcntl(fd, F_SETFD, FD_CLOEXEC) != -1);
@@ -240,6 +268,7 @@ static Handle<Value> Socket(const Arguments& args) {
   int fd = socket(domain, type, 0);
 #else // __MINGW32__
   SOCKET sock = socket(domain, type, 0);
+  sock_magic(sock);
   int fd = _open_osfhandle(sock, 0);
   iocp_associate(sock);
 #endif
@@ -428,7 +457,6 @@ static Handle<Value> Shutdown(const Arguments& args) {
 
 void AfterConnect(HANDLE handle, IocpPacket *packet) {
   HandleScope scope;
-  int fd;
   DWORD bytes;
   Persistent<Function> *cb = cb_unwrap(packet->accept_data.js_cb);
   Handle<Value> argv[1];
@@ -441,7 +469,12 @@ void AfterConnect(HANDLE handle, IocpPacket *packet) {
 
   FreeIocpPacket(packet);
 
+  TryCatch try_catch;
   (*cb)->Call(Context::GetCurrent()->Global(), 1, argv);
+  if (try_catch.HasCaught()) {
+    FatalException(try_catch);
+  }
+
   cb_destroy(cb);
 }
 
@@ -643,6 +676,7 @@ static Handle<Value> Listen(const Arguments& args) {
 
 void AfterAccept(HANDLE handle, IocpPacket *packet) {
   HandleScope scope;
+  TryCatch try_catch;
   int fd;
   DWORD bytes;
   Handle<Value> argv[2];
@@ -673,7 +707,12 @@ void AfterAccept(HANDLE handle, IocpPacket *packet) {
 
   argv[0] = Undefined();
   argv[1] = Integer::New(fd);
+
   (*cb)->Call(Context::GetCurrent()->Global(), 2, argv);
+  if (try_catch.HasCaught()) {
+    FatalException(try_catch);
+  }
+
   cb_destroy(cb);
   return;
 
@@ -682,7 +721,11 @@ void AfterAccept(HANDLE handle, IocpPacket *packet) {
   free(packet->accept_data.buffer);
   FreeIocpPacket(packet);
 
-  (*cb)->Call(Context::GetCurrent()->Global(), 1, argv);
+  (*cb)->Call(Context::GetCurrent()->Global(), 2, argv);
+  if (try_catch.HasCaught()) {
+    FatalException(try_catch);
+  }
+
   cb_destroy(cb);
 }
 
@@ -722,6 +765,7 @@ static Handle<Value> Accept(const Arguments& args) {
   if (peer == INVALID_SOCKET)
     return ThrowException(ErrnoException(WSAGetLastError(), "socket"));
 
+  sock_magic(peer);
   iocp_associate(peer);
 
   /* AcceptEx specifies that the buffer must be big enough to at least hold */
@@ -737,8 +781,9 @@ static Handle<Value> Accept(const Arguments& args) {
   packet->accept_data.js_cb = cb_persist(args[1]);
 
   if (!pAcceptEx(sock, peer, buffer, 0, sizeof(sockaddr_storage), sizeof(sockaddr_storage), &bytes, PacketToOverlapped(packet)) &&
-      WSAGetLastError() != ERROR_IO_PENDING)
-    { wsa_perror(); abort(); }
+      WSAGetLastError() != ERROR_IO_PENDING) {
+    return ThrowException(ErrnoException(WSAGetLastError(), "AcceptEx"));
+  }
 
   return Undefined();
 }
@@ -769,12 +814,55 @@ static Handle<Value> SocketError(const Arguments& args) {
   return scope.Close(Integer::New(error));
 }
 
+TICKER_DEFINE(AfterRead);
+TICKER_DEFINE(Callback);
 
-//  var bytesRead = t.read(fd, buffer, offset, length);
-//  returns null on EAGAIN or EINTR, raises an exception on all other errors
-//  returns 0 on EOF.
-static Handle<Value> Read(const Arguments& args) {
+void AfterRead(HANDLE handle, IocpPacket *packet) {
+  TICKER_START(AfterRead);
+
   HandleScope scope;
+  DWORD bytes, flags;
+  Persistent<Function> *cb = cb_unwrap(packet->read_data.js_cb);
+  Handle<Value> argv[2];
+
+  if (!WSAGetOverlappedResult((SOCKET)handle, PacketToOverlapped(packet), &bytes, FALSE, &flags)) {
+    argv[0] = ErrnoException(WSAGetLastError(), "WSARecv");
+    argv[1] = Undefined();
+  } else {
+    argv[0] = Undefined();
+    argv[1] = Integer::New(bytes);
+  }
+
+  value_dispose(packet->read_data.buffer);
+  FreeIocpPacket(packet);
+
+
+  TryCatch try_catch;
+  TICKER_STOP(AfterRead);
+  TICKER_START(Callback);
+  (*cb)->Call(Context::GetCurrent()->Global(), 2, argv);
+  TICKER_STOP(Callback);
+  TICKER_START(AfterRead);
+  if (try_catch.HasCaught()) {
+    FatalException(try_catch);
+  }
+
+  cb_destroy(cb);
+
+  TICKER_STOP(AfterRead);
+}
+
+TICKER_DEFINE(Read);
+
+//  t.read(fd, buffer, offset, length, cb);
+static Handle<Value> Read(const Arguments& args) {
+  TICKER_START(Read);
+
+  HandleScope scope;
+  SOCKET sock;
+  DWORD bytes, flags;
+  WSABUF wsaBuf;
+  IocpPacket *packet;
 
   if (args.Length() < 4) {
     return ThrowException(Exception::TypeError(
@@ -782,6 +870,7 @@ static Handle<Value> Read(const Arguments& args) {
   }
 
   FD_ARG(args[0])
+  CB_ARG(args[4]);
 
   if (!Buffer::HasInstance(args[1])) {
     return ThrowException(Exception::TypeError(
@@ -804,28 +893,136 @@ static Handle<Value> Read(const Arguments& args) {
           String::New("Length is extends beyond buffer")));
   }
 
-#ifdef __POSIX__
-  ssize_t bytes_read = read(fd, (char*)buffer_data + off, len);
+  sock = (SOCKET)_get_osfhandle(fd);
+  if (sock == (SOCKET)INVALID_HANDLE_VALUE)
+    return ThrowException(ErrnoException(errno, "_get_osfhandle"));
 
-  if (bytes_read < 0) {
-    if (errno == EAGAIN || errno == EINTR) return Null();
-    return ThrowException(ErrnoException(errno, "read"));
+
+  packet = AllocIocpPacket();
+  ClearOverlapped(packet);
+  packet->priority = 0;
+  packet->callback = &AfterRead;
+  packet->read_data.buffer = value_wrap(args[1]);
+  packet->read_data.js_cb = cb_persist(args[4]);
+  wsaBuf.buf = buffer_data + off;
+  wsaBuf.len = len;
+  flags = 0;
+
+  if (WSARecv(sock, &wsaBuf, 1, &bytes, &flags, PacketToOverlapped(packet), NULL) == SOCKET_ERROR &&
+      GetLastError() != ERROR_IO_PENDING) {
+    return ThrowException(ErrnoException(GetLastError(), "ReadFile"));
   }
-#else // __MINGW32__
-   // read() doesn't work for overlapped sockets (the only usable
-   // type of sockets) so recv() is used here.
-  ssize_t bytes_read = recv(_get_osfhandle(fd), (char*)buffer_data + off, len, 0);
 
-  if (bytes_read < 0) {
-    int wsaErrno = WSAGetLastError();
-    if (wsaErrno == WSAEWOULDBLOCK || wsaErrno == WSAEINTR) return Null();
-    return ThrowException(ErrnoException(wsaErrno, "read"));
-  }
-#endif
-
-  return scope.Close(Integer::New(bytes_read));
+  TICKER_STOP(Read);
+  return Undefined();
 }
 
+TICKER_DEFINE(AfterWrite);
+
+void AfterWrite(HANDLE handle, IocpPacket *packet) {
+  TICKER_START(AfterWrite);
+
+  HandleScope scope;
+  DWORD bytes, flags;
+  Persistent<Function> *cb = cb_unwrap(packet->write_data.js_cb);
+  Handle<Value> argv[2];
+
+  if (!WSAGetOverlappedResult((SOCKET)handle, PacketToOverlapped(packet), &bytes, FALSE, &flags)) {
+    argv[0] = ErrnoException(WSAGetLastError(), "WSASend");
+    argv[1] = Undefined();
+  } else {
+    argv[0] = Undefined();
+    argv[1] = Integer::New(bytes);
+  }
+
+  value_dispose(packet->write_data.buffer);
+  FreeIocpPacket(packet);
+
+  TryCatch try_catch;
+  TICKER_STOP(AfterWrite);
+  TICKER_START(Callback);
+  (*cb)->Call(Context::GetCurrent()->Global(), 2, argv);
+  TICKER_STOP(Callback);
+  TICKER_START(AfterWrite);
+  if (try_catch.HasCaught()) {
+    FatalException(try_catch);
+  }
+
+  cb_destroy(cb);
+
+  TICKER_STOP(AfterWrite);
+}
+
+TICKER_DEFINE(Write)
+TICKER_DEFINE(WritePrologue)
+TICKER_DEFINE(WSASend)
+
+//  var t.write(fd, buffer, offset, length, cb);
+static Handle<Value> Write(const Arguments& args) {
+  TICKER_START(Write);
+  TICKER_START(WritePrologue);
+
+  HandleScope scope;
+  SOCKET sock;
+  DWORD bytes;
+  WSABUF wsaBuf;
+  IocpPacket *packet;
+
+  if (args.Length() < 4) {
+    return ThrowException(Exception::TypeError(
+          String::New("Takes 4 parameters")));
+  }
+
+  FD_ARG(args[0])
+  CB_ARG(args[4]);
+
+  if (!Buffer::HasInstance(args[1])) {
+    return ThrowException(Exception::TypeError(
+          String::New("Second argument should be a buffer")));
+  }
+
+  Local<Object> buffer_obj = args[1]->ToObject();
+  char *buffer_data = Buffer::Data(buffer_obj);
+  size_t buffer_length = Buffer::Length(buffer_obj);
+
+  size_t off = args[2]->Int32Value();
+  if (off >= buffer_length) {
+    return ThrowException(Exception::Error(
+          String::New("Offset is out of bounds")));
+  }
+
+  size_t len = args[3]->Int32Value();
+  if (off + len > buffer_length) {
+    return ThrowException(Exception::Error(
+          String::New("Length is extends beyond buffer")));
+  }
+
+  sock = (SOCKET)_get_osfhandle(fd);
+  if (sock == (SOCKET)INVALID_HANDLE_VALUE)
+    return ThrowException(ErrnoException(errno, "_get_osfhandle"));
+
+
+  packet = AllocIocpPacket();
+  ClearOverlapped(packet);
+  packet->priority = 0;
+  packet->callback = &AfterWrite;
+  packet->write_data.buffer = value_wrap(args[1]);
+  packet->write_data.js_cb = cb_persist(args[4]);
+  wsaBuf.buf = buffer_data + off;
+  wsaBuf.len = len;
+
+  TICKER_STOP(WritePrologue);
+
+  TICKER_START(WSASend);
+  if (WSASend(sock, &wsaBuf, 1, &bytes, 0, PacketToOverlapped(packet), NULL) == SOCKET_ERROR &&
+      WSAGetLastError() != ERROR_IO_PENDING) {
+    return ThrowException(ErrnoException(WSAGetLastError(), "WriteFile"));
+  }
+  TICKER_STOP(WSASend);
+
+  TICKER_STOP(Write);
+  return Undefined();
+}
 
 //  var info = t.recvfrom(fd, buffer, offset, length, flags);
 //    info.size // bytes read
@@ -999,65 +1196,6 @@ static Handle<Value> RecvMsg(const Arguments& args) {
 
 #endif // __POSIX__
 
-
-//  var bytesWritten = t.write(fd, buffer, offset, length);
-//  returns null on EAGAIN or EINTR, raises an exception on all other errors
-static Handle<Value> Write(const Arguments& args) {
-  HandleScope scope;
-
-  if (args.Length() < 4) {
-    return ThrowException(Exception::TypeError(
-          String::New("Takes 4 parameters")));
-  }
-
-  FD_ARG(args[0])
-
-  if (!Buffer::HasInstance(args[1])) {
-    return ThrowException(Exception::TypeError(
-          String::New("Second argument should be a buffer")));
-  }
-
-  Local<Object> buffer_obj = args[1]->ToObject();
-  char *buffer_data = Buffer::Data(buffer_obj);
-  size_t buffer_length = Buffer::Length(buffer_obj);
-
-  size_t off = args[2]->Int32Value();
-  if (off >= buffer_length) {
-    return ThrowException(Exception::Error(
-          String::New("Offset is out of bounds")));
-  }
-
-  size_t len = args[3]->Int32Value();
-  if (off + len > buffer_length) {
-    return ThrowException(Exception::Error(
-          String::New("Length is extends beyond buffer")));
-  }
-
-#ifdef __POSIX__
-  ssize_t written = write(fd, buffer_data + off, len);
-
-  if (written < 0) {
-    if (errno == EAGAIN || errno == EINTR) {
-      return scope.Close(Integer::New(0));
-    }
-    return ThrowException(ErrnoException(errno, "write"));
-  }
-#else // __MINGW32__
-  // write() doesn't work for overlapped sockets (the only usable
-  // type of sockets) so send() is used.
-  ssize_t written = send(_get_osfhandle(fd), buffer_data + off, len, 0);
-
-  if (written < 0) {
-    int wsaErrno = WSAGetLastError();
-    if (wsaErrno == WSAEWOULDBLOCK || wsaErrno == WSAEINTR) {
-      return scope.Close(Integer::New(0));
-    }
-    return ThrowException(ErrnoException(wsaErrno, "write"));
-  }
-#endif // __MINGW32__
-
-  return scope.Close(Integer::New(written));
-}
 
 
 #ifdef __POSIX__

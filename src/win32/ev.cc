@@ -17,6 +17,8 @@ ev_idle *ev_idle_invoke_next = NULL;
 
 ev_tstamp ev_rt_now;
 
+LARGE_INTEGER ticks_per_second;
+
 void iocp_fatal_error(const char *syscall) {
   DWORD errorno = GetLastError();
   char *errmsg = NULL;
@@ -131,6 +133,9 @@ void ev_timer_handle_packet(HANDLE handle, IocpPacket *packet) {
   }
 }
 
+
+TICKER_DEFINE(GetQueuedCompletionStatus)
+
 static inline void iocp_poll() {
   BOOL success;
   DWORD bytes;
@@ -142,6 +147,7 @@ static inline void iocp_poll() {
   for (int i = EV_NUMPRI; i >= 0; i--)
     ev_invoke_static(ev_prepare, i, EV_PREPARE);
 
+  TICKER_START(GetQueuedCompletionStatus)
   success = GetQueuedCompletionStatus(iocp,
                                       &bytes,
                                       &key,
@@ -150,6 +156,7 @@ static inline void iocp_poll() {
 
   if (!success && !overlapped)
     iocp_fatal_error("GetQueuedCompletionStatus");
+  TICKER_STOP(GetQueuedCompletionStatus)
 
   packet = OverlappedToPacket(overlapped);
 
@@ -169,6 +176,7 @@ static inline void iocp_poll() {
 
 void iocp_run(void) {
   ev_now_update();
+  QueryPerformanceFrequency(&ticks_per_second);
   while (1)
     iocp_poll();
 }

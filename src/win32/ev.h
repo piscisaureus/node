@@ -61,17 +61,30 @@ struct IocpPacket {
     /* For libev ev_timer compatibility layer */
     struct ev_timer *w_timer;
 
-    /* used by Connect */
+    /* used by Read, Write */
     struct {
       void *js_cb;
+      void *buffer; /* Reference to Persistent<Value> */
     } connect_data;
 
     /* used by Accept */
     struct {
       void *js_cb;
       SOCKET peer;
-      void *buffer;
+      void *buffer; /* malloc()ed buffer */
     } accept_data;
+
+    /* used by Read */
+    struct {
+      void *js_cb;
+      void *buffer; /* Reference to buffer object */
+    } read_data;
+
+    /* used by Write */
+    struct {
+      void *js_cb;
+      void *buffer; /* Reference to buffer object */
+    } write_data;
   };
 
   /* Handler priority */
@@ -474,6 +487,36 @@ inline void ev_loop(int flags) {
   iocp_run();
 }
 #define SIGTERM 0xffffff
+
+/* performance ticker */
+
+extern LARGE_INTEGER ticks_per_second;
+
+#define TICKER_DEFINE(name)      \
+  static struct {           \
+    LONGLONG total;          \
+    int secs;                \
+  } ticker_##name = {0};
+
+#define TICKER_START(name) \
+  do { \
+    LARGE_INTEGER ticks; \
+    QueryPerformanceCounter(&ticks); \
+    ticker_##name.total -= ticks.QuadPart; \
+  } while(0);
+
+#define TICKER_STOP(name) \
+  do { \
+    LARGE_INTEGER ticks; \
+    QueryPerformanceCounter(&ticks); \
+    ticker_##name.total += ticks.QuadPart; \
+    int secs = ticker_##name.total / ticks_per_second.QuadPart; \
+    if (secs > ticker_##name.secs) { \
+      ticker_##name.secs = secs; \
+      fprintf(stderr, "Spent %d secs in %s\n", secs, #name); \
+    } \
+  } while(0);
+
 
 #ifdef __cplusplus
 } /* extern "C" */
