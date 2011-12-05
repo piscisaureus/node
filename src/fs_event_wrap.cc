@@ -42,6 +42,10 @@ namespace node {
 
 class FSEventWrap: public HandleWrap {
 public:
+  uv_handle_t* GetHandle() {
+    return reinterpret_cast<uv_handle_t*>(&handle_);
+  }
+
   static void Initialize(Handle<Object> target);
   static Handle<Value> New(const Arguments& args);
   static Handle<Value> Start(const Arguments& args);
@@ -59,8 +63,7 @@ private:
 };
 
 
-FSEventWrap::FSEventWrap(Handle<Object> object): HandleWrap(object,
-                                                    (uv_handle_t*)&handle_) {
+FSEventWrap::FSEventWrap(Handle<Object> object): HandleWrap(object) {
   handle_.data = reinterpret_cast<void*>(this);
   initialized_ = false;
 }

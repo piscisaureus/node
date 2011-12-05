@@ -50,10 +50,7 @@ using v8::Integer;
 
 
 #define UNWRAP \
-  assert(!args.Holder().IsEmpty()); \
-  assert(args.Holder()->InternalFieldCount() > 0); \
-  StreamWrap* wrap =  \
-      static_cast<StreamWrap*>(args.Holder()->GetPointerFromInternalField(0)); \
+  StreamWrap* wrap = Unwrap<StreamWrap>(args); \
   if (!wrap) { \
     uv_err_t err; \
     err.code = UV_EBADF; \
@@ -74,6 +71,16 @@ static Persistent<String> write_queue_size_sym;
 static bool initialized;
 
 
+void StreamWrap::InitializeTemplate(Handle<FunctionTemplate> tpl) {
+  HandleWrap::InitializeTemplate(tpl);
+
+  NODE_SET_PROTOTYPE_METHOD(tpl, "readStart", ReadStart);
+  NODE_SET_PROTOTYPE_METHOD(tpl, "readStop", ReadStop);
+  NODE_SET_PROTOTYPE_METHOD(tpl, "write", Write);
+  NODE_SET_PROTOTYPE_METHOD(tpl, "shutdown", Shutdown);
+}
+
+
 void StreamWrap::Initialize(Handle<Object> target) {
   if (initialized) {
     return;
@@ -92,25 +99,14 @@ void StreamWrap::Initialize(Handle<Object> target) {
 }
 
 
-StreamWrap::StreamWrap(Handle<Object> object, uv_stream_t* stream)
-    : HandleWrap(object, (uv_handle_t*)stream) {
-  stream_ = stream;
-  if (stream) {
-    stream->data = this;
-  }
-}
-
-
-void StreamWrap::SetHandle(uv_handle_t* h) {
-  HandleWrap::SetHandle(h);
-  stream_ = (uv_stream_t*)h;
-  stream_->data = this;
+StreamWrap::StreamWrap(Handle<Object> object)
+    : HandleWrap(object) {
 }
 
 
 void StreamWrap::UpdateWriteQueueSize() {
   HandleScope scope;
-  object_->Set(write_queue_size_sym, Integer::New(stream_->write_queue_size));
+  object_->Set(write_queue_size_sym, Integer::New(GetStream()->write_queue_size));
 }
 
 
@@ -119,13 +115,13 @@ Handle<Value> StreamWrap::ReadStart(const Arguments& args) {
 
   UNWRAP
 
-  bool ipc_pipe = wrap->stream_->type == UV_NAMED_PIPE &&
-                  ((uv_pipe_t*)wrap->stream_)->ipc;
+  bool ipc_pipe = wrap->GetStream()->type == UV_NAMED_PIPE &&
+                  ((uv_pipe_t*)wrap->GetStream())->ipc;
   int r;
   if (ipc_pipe) {
-    r = uv_read2_start(wrap->stream_, OnAlloc, OnRead2);
+    r = uv_read2_start(wrap->GetStream(), OnAlloc, OnRead2);
   } else {
-    r = uv_read_start(wrap->stream_, OnAlloc, OnRead);
+    r = uv_read_start(wrap->GetStream(), OnAlloc, OnRead);
   }
 
   // Error starting the tcp.
@@ -140,7 +136,7 @@ Handle<Value> StreamWrap::ReadStop(const Arguments& args) {
 
   UNWRAP
 
-  int r = uv_read_stop(wrap->stream_);
+  int r = uv_read_stop(wrap->GetStream());
 
   // Error starting the tcp.
   if (r) SetErrno(uv_last_error(uv_default_loop()));
@@ -164,7 +160,7 @@ uv_buf_t StreamWrap::OnAlloc(uv_handle_t* handle, size_t suggested_size) {
   HandleScope scope;
 
   StreamWrap* wrap = static_cast<StreamWrap*>(handle->data);
-  assert(wrap->stream_ == reinterpret_cast<uv_stream_t*>(handle));
+  assert(wrap->GetStream() == reinterpret_cast<uv_stream_t*>(handle));
 
   char* slab = NULL;
 
@@ -244,7 +240,7 @@ void StreamWrap::OnReadCommon(uv_stream_t* handle, ssize_t nread,
 
     if (pending == UV_TCP) {
       // Instantiate the client javascript object and handle.
-      Local<Object> pending_obj = TCPWrap::Instantiate();
+      Local<Object> pending_obj = Instantiate<TCPWrap>();
 
       // Unwrap the client javascript object.
       assert(pending_obj->InternalFieldCount() > 0);
@@ -282,8 +278,8 @@ Handle<Value> StreamWrap::Write(const Arguments& args) {
 
   UNWRAP
 
-  bool ipc_pipe = wrap->stream_->type == UV_NAMED_PIPE &&
-                  ((uv_pipe_t*)wrap->stream_)->ipc;
+  bool ipc_pipe = wrap->GetStream()->type == UV_NAMED_PIPE &&
+                  ((uv_pipe_t*)wrap->GetStream())->ipc;
 
   // The first argument is a buffer.
   assert(Buffer::HasInstance(args[0]));
@@ -301,7 +297,7 @@ Handle<Value> StreamWrap::Write(const Arguments& args) {
 
   WriteWrap* req_wrap = new WriteWrap();
 
-  req_wrap->object_->SetHiddenValue(buffer_sym, buffer_obj);
+  req_wrap->GetObject()->SetHiddenValue(buffer_sym, buffer_obj);
 
   uv_buf_t buf;
   buf.base = Buffer::Data(buffer_obj) + offset;
@@ -310,7 +306,7 @@ Handle<Value> StreamWrap::Write(const Arguments& args) {
   int r;
 
   if (!ipc_pipe) {
-    r = uv_write(&req_wrap->req_, wrap->stream_, &buf, 1, StreamWrap::AfterWrite);
+    r = uv_write(&req_wrap->req_, wrap->GetStream(), &buf, 1, StreamWrap::AfterWrite);
   } else {
     uv_stream_t* send_stream = NULL;
 
@@ -323,7 +319,7 @@ Handle<Value> StreamWrap::Write(const Arguments& args) {
     }
 
     r = uv_write2(&req_wrap->req_,
-                  wrap->stream_,
+                  wrap->GetStream(),
                   &buf,
                   1,
                   send_stream,
@@ -339,7 +335,7 @@ Handle<Value> StreamWrap::Write(const Arguments& args) {
     delete req_wrap;
     return scope.Close(v8::Null());
   } else {
-    return scope.Close(req_wrap->object_);
+    return scope.Close(req_wrap->GetObject());
   }
 }
 
@@ -351,7 +347,7 @@ void StreamWrap::AfterWrite(uv_write_t* req, int status) {
   HandleScope scope;
 
   // The wrap and request objects should still be there.
-  assert(req_wrap->object_.IsEmpty() == false);
+  assert(req_wrap->GetObject().IsEmpty() == false);
   assert(wrap->object_.IsEmpty() == false);
 
   if (status) {
@@ -363,11 +359,11 @@ void StreamWrap::AfterWrite(uv_write_t* req, int status) {
   Local<Value> argv[4] = {
     Integer::New(status),
     Local<Value>::New(wrap->object_),
-    Local<Value>::New(req_wrap->object_),
-    req_wrap->object_->GetHiddenValue(buffer_sym),
+    Local<Value>::New(req_wrap->GetObject()),
+    req_wrap->GetObject()->GetHiddenValue(buffer_sym),
   };
 
-  MakeCallback(req_wrap->object_, "oncomplete", 4, argv);
+  MakeCallback(req_wrap->GetObject(), "oncomplete", 4, argv);
 
   delete req_wrap;
 }
@@ -380,7 +376,7 @@ Handle<Value> StreamWrap::Shutdown(const Arguments& args) {
 
   ShutdownWrap* req_wrap = new ShutdownWrap();
 
-  int r = uv_shutdown(&req_wrap->req_, wrap->stream_, AfterShutdown);
+  int r = uv_shutdown(&req_wrap->req_, wrap->GetStream(), AfterShutdown);
 
   req_wrap->Dispatched();
 
@@ -389,7 +385,7 @@ Handle<Value> StreamWrap::Shutdown(const Arguments& args) {
     delete req_wrap;
     return scope.Close(v8::Null());
   } else {
-    return scope.Close(req_wrap->object_);
+    return scope.Close(req_wrap->GetObject());
   }
 }
 
@@ -399,7 +395,7 @@ void StreamWrap::AfterShutdown(uv_shutdown_t* req, int status) {
   StreamWrap* wrap = (StreamWrap*) req->handle->data;
 
   // The wrap and request objects should still be there.
-  assert(req_wrap->object_.IsEmpty() == false);
+  assert(req_wrap->GetObject().IsEmpty() == false);
   assert(wrap->object_.IsEmpty() == false);
 
   HandleScope scope;
@@ -411,10 +407,10 @@ void StreamWrap::AfterShutdown(uv_shutdown_t* req, int status) {
   Local<Value> argv[3] = {
     Integer::New(status),
     Local<Value>::New(wrap->object_),
-    Local<Value>::New(req_wrap->object_)
+    Local<Value>::New(req_wrap->GetObject())
   };
 
-  MakeCallback(req_wrap->object_, "oncomplete", 3, argv);
+  MakeCallback(req_wrap->GetObject(), "oncomplete", 3, argv);
 
   delete req_wrap;
 }

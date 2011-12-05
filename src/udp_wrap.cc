@@ -72,6 +72,10 @@ typedef ReqWrap<uv_udp_send_t> SendWrap;
 
 class UDPWrap: public HandleWrap {
 public:
+  uv_handle_t* GetHandle() {
+    return reinterpret_cast<uv_handle_t*>(&handle_);
+  }
+
   static void Initialize(Handle<Object> target);
   static Handle<Value> New(const Arguments& args);
   static Handle<Value> Bind(const Arguments& args);
@@ -101,8 +105,7 @@ private:
 };
 
 
-UDPWrap::UDPWrap(Handle<Object> object): HandleWrap(object,
-                                                    (uv_handle_t*)&handle_) {
+UDPWrap::UDPWrap(Handle<Object> object): HandleWrap(object) {
   int r = uv_udp_init(uv_default_loop(), &handle_);
   assert(r == 0); // can't fail anyway
   handle_.data = reinterpret_cast<void*>(this);
@@ -208,7 +211,7 @@ Handle<Value> UDPWrap::DoSend(const Arguments& args, int family) {
   size_t length = args[2]->Uint32Value();
 
   SendWrap* req_wrap = new SendWrap();
-  req_wrap->object_->SetHiddenValue(buffer_sym, buffer_obj);
+  req_wrap->GetObject()->SetHiddenValue(buffer_sym, buffer_obj);
 
   uv_buf_t buf = uv_buf_init(Buffer::Data(buffer_obj) + offset,
                              length);
@@ -238,7 +241,7 @@ Handle<Value> UDPWrap::DoSend(const Arguments& args, int family) {
     return Null();
   }
   else {
-    return scope.Close(req_wrap->object_);
+    return scope.Close(req_wrap->GetObject());
   }
 }
 
@@ -312,7 +315,7 @@ void UDPWrap::OnSend(uv_udp_send_t* req, int status) {
   SendWrap* req_wrap = reinterpret_cast<SendWrap*>(req->data);
   UDPWrap* wrap = reinterpret_cast<UDPWrap*>(req->handle->data);
 
-  assert(req_wrap->object_.IsEmpty() == false);
+  assert(req_wrap->GetObject().IsEmpty() == false);
   assert(wrap->object_.IsEmpty() == false);
 
   if (status) {
@@ -322,11 +325,11 @@ void UDPWrap::OnSend(uv_udp_send_t* req, int status) {
   Local<Value> argv[4] = {
     Integer::New(status),
     Local<Value>::New(wrap->object_),
-    Local<Value>::New(req_wrap->object_),
-    req_wrap->object_->GetHiddenValue(buffer_sym),
+    Local<Value>::New(req_wrap->GetObject()),
+    req_wrap->GetObject()->GetHiddenValue(buffer_sym),
   };
 
-  MakeCallback(req_wrap->object_, "oncomplete", 4, argv);
+  MakeCallback(req_wrap->GetObject(), "oncomplete", 4, argv);
   delete req_wrap;
 }
 

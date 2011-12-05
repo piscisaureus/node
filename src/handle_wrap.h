@@ -22,6 +22,9 @@
 #ifndef HANDLE_WRAP_H_
 #define HANDLE_WRAP_H_
 
+#include <wrap.h>
+
+
 namespace node {
 
 // Rules:
@@ -44,26 +47,25 @@ namespace node {
 //   js/c++ boundary crossing. At the javascript layer that should all be
 //   taken care of.
 
-class HandleWrap {
+class HandleWrap: public Wrap {
   public:
     static void Initialize(v8::Handle<v8::Object> target);
     static v8::Handle<v8::Value> Close(const v8::Arguments& args);
     static v8::Handle<v8::Value> Unref(const v8::Arguments& args);
 
   protected:
-    HandleWrap(v8::Handle<v8::Object> object, uv_handle_t* handle);
-    virtual ~HandleWrap();
+    HandleWrap(v8::Handle<v8::Object> object)
+      : Wrap(object) {
+      unref = false;
+    }
 
-    virtual void SetHandle(uv_handle_t* h);
+    static void InitializeTemplate(Handle<FunctionTemplate> tpl);
+
     virtual void StateChange() {}
-
-    v8::Persistent<v8::Object> object_;
+    virtual uv_handle_t* GetHandle() = 0;
 
   private:
     static void OnClose(uv_handle_t* handle);
-    // Using double underscore due to handle_ member in tcp_wrap. Probably
-    // tcp_wrap should rename it's member to 'handle'.
-    uv_handle_t* handle__;
     bool unref;
 };
 

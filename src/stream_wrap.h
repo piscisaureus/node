@@ -30,7 +30,11 @@ namespace node {
 
 class StreamWrap : public HandleWrap {
  public:
-  uv_stream_t* GetStream() { return stream_; }
+  uv_handle_t* GetHandle() { 
+    return (uv_handle_t*) GetStream();
+  }
+
+  virtual uv_stream_t* GetStream() = 0;
 
   static void Initialize(v8::Handle<v8::Object> target);
 
@@ -41,9 +45,11 @@ class StreamWrap : public HandleWrap {
   static v8::Handle<v8::Value> Shutdown(const v8::Arguments& args);
 
  protected:
-  StreamWrap(v8::Handle<v8::Object> object, uv_stream_t* stream);
+  StreamWrap(v8::Handle<v8::Object> object);
   virtual ~StreamWrap() { }
-  virtual void SetHandle(uv_handle_t* h);
+
+  static void InitializeTemplate(Handle<FunctionTemplate> tpl);
+
   void StateChange() { }
   void UpdateWriteQueueSize();
 
@@ -62,7 +68,6 @@ class StreamWrap : public HandleWrap {
       uv_buf_t buf, uv_handle_type pending);
 
   size_t slab_offset_;
-  uv_stream_t* stream_;
 };
 
 

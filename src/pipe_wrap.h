@@ -27,15 +27,22 @@ namespace node {
 
 class PipeWrap : StreamWrap {
  public:
-  uv_pipe_t* UVHandle();
+  uv_stream_t* GetStream() {
+    return reinterpret_cast<uv_stream_t*>(&handle_);
+  }
 
-  static PipeWrap* Unwrap(v8::Local<v8::Object> obj);
+  uv_pipe_t* GetUVPipe() {
+    return &handle_;
+  }
+
   static void Initialize(v8::Handle<v8::Object> target);
 
  private:
   PipeWrap(v8::Handle<v8::Object> object, bool ipc);
 
+  template <class T>
   static v8::Handle<v8::Value> New(const v8::Arguments& args);
+
   static v8::Handle<v8::Value> Bind(const v8::Arguments& args);
   static v8::Handle<v8::Value> Listen(const v8::Arguments& args);
   static v8::Handle<v8::Value> Connect(const v8::Arguments& args);

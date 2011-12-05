@@ -22,22 +22,26 @@
 #ifndef REQ_WRAP_H_
 #define REQ_WRAP_H_
 
+#include <wrap.h>
+
 namespace node {
+using namespace v8;
+
 
 template <typename T>
-class ReqWrap {
+class ReqWrap: public Wrap {
  public:
-  ReqWrap() {
-    v8::HandleScope scope;
-    object_ = v8::Persistent<v8::Object>::New(v8::Object::New());
+  ReqWrap()
+    : Wrap(Constructor<ReqWrap>()->NewInstance()) {
+  }
+
+  ReqWrap(Handle<Object> object)
+    : Wrap(object) {
   }
 
   ~ReqWrap() {
     // Assert that someone has called Dispatched()
     assert(req_.data == this);
-    assert(!object_.IsEmpty());
-    object_.Dispose();
-    object_.Clear();
   }
 
   // Call this after the req has been dispatched.
@@ -45,7 +49,6 @@ class ReqWrap {
     req_.data = this;
   }
 
-  v8::Persistent<v8::Object> object_;
   T req_;
   void* data_;
 };

@@ -27,15 +27,18 @@ namespace node {
 
 class TCPWrap : public StreamWrap {
  public:
-  static v8::Local<v8::Object> Instantiate();
-  static TCPWrap* Unwrap(v8::Local<v8::Object> obj);
-  static void Initialize(v8::Handle<v8::Object> target);
+  uv_stream_t* GetStream() {
+    return reinterpret_cast<uv_stream_t*>(&handle_);
+  }
 
- private:
   TCPWrap(v8::Handle<v8::Object> object);
   ~TCPWrap();
 
-  static v8::Handle<v8::Value> New(const v8::Arguments& args);
+  //static TCPWrap* Unwrap(v8::Local<v8::Object> obj);
+  static void Initialize(v8::Handle<v8::Object> target);
+  static void InitializeTemplate(Handle<FunctionTemplate> t);
+
+ private:
   static v8::Handle<v8::Value> GetSockName(const v8::Arguments& args);
   static v8::Handle<v8::Value> GetPeerName(const v8::Arguments& args);
   static v8::Handle<v8::Value> SetNoDelay(const v8::Arguments& args);

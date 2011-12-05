@@ -52,6 +52,13 @@ using v8::Integer;
   }
 
 
+void HandleWrap::InitializeTemplate(Handle<FunctionTemplate> tpl) {
+  Wrap::InitializeTemplate(tpl);
+
+  NODE_SET_PROTOTYPE_METHOD(tpl, "close", Close);
+}
+
+
 void HandleWrap::Initialize(Handle<Object> target) {
   /* Doesn't do anything at the moment. */
 }
@@ -80,7 +87,7 @@ Handle<Value> HandleWrap::Close(const Arguments& args) {
   UNWRAP
 
   assert(!wrap->object_.IsEmpty());
-  uv_close(wrap->handle__, OnClose);
+  uv_close(wrap->GetHandle(), OnClose);
 
   if (wrap->unref) {
     uv_ref(uv_default_loop());
@@ -93,42 +100,8 @@ Handle<Value> HandleWrap::Close(const Arguments& args) {
 }
 
 
-HandleWrap::HandleWrap(Handle<Object> object, uv_handle_t* h) {
-  unref = false;
-  handle__ = h;
-  if (h) {
-    h->data = this;
-  }
-
-  HandleScope scope;
-  assert(object_.IsEmpty());
-  assert(object->InternalFieldCount() > 0);
-  object_ = v8::Persistent<v8::Object>::New(object);
-  object_->SetPointerInInternalField(0, this);
-}
-
-
-void HandleWrap::SetHandle(uv_handle_t* h) {
-  handle__ = h;
-  h->data = this;
-}
-
-
-HandleWrap::~HandleWrap() {
-  assert(object_.IsEmpty());
-}
-
-
 void HandleWrap::OnClose(uv_handle_t* handle) {
   HandleWrap* wrap = static_cast<HandleWrap*>(handle->data);
-
-  // The wrap object should still be there.
-  assert(wrap->object_.IsEmpty() == false);
-
-  wrap->object_->SetPointerInInternalField(0, NULL);
-  wrap->object_.Dispose();
-  wrap->object_.Clear();
-
   delete wrap;
 }
 

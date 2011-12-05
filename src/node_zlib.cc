@@ -135,7 +135,7 @@ template <node_zlib_mode mode> class ZCtx : public ObjectWrap {
 
     req_wrap->Dispatched();
 
-    return req_wrap->object_;
+    return req_wrap->GetObject();
   }
 
 
@@ -184,10 +184,10 @@ template <node_zlib_mode mode> class ZCtx : public ObjectWrap {
     Local<Integer> avail_in = Integer::New(ctx->strm_.avail_in);
 
     // call the write() cb
-    assert(req_wrap->object_->Get(callback_sym)->IsFunction() &&
+    assert(req_wrap->GetObject()->Get(callback_sym)->IsFunction() &&
            "Invalid callback");
     Local<Value> args[2] = { avail_in, avail_out };
-    MakeCallback(req_wrap->object_, "callback", 2, args);
+    MakeCallback(req_wrap->GetObject(), "callback", 2, args);
 
     // delete the ReqWrap
     delete req_wrap;

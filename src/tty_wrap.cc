@@ -43,10 +43,7 @@ using v8::Integer;
 using v8::Undefined;
 
 #define UNWRAP \
-  assert(!args.Holder().IsEmpty()); \
-  assert(args.Holder()->InternalFieldCount() > 0); \
-  TTYWrap* wrap =  \
-      static_cast<TTYWrap*>(args.Holder()->GetPointerFromInternalField(0)); \
+  TTYWrap* wrap = Unwrap<TTYWrap>(args); \
   if (!wrap) { \
     uv_err_t err; \
     err.code = UV_EBADF; \
@@ -57,30 +54,24 @@ using v8::Undefined;
 
 class TTYWrap : StreamWrap {
  public:
+  uv_stream_t* GetStream() {
+    return reinterpret_cast<uv_stream_t*>(&handle_);
+  }
+
+  static void InitializeTemplate(Handle<FunctionTemplate> tpl) {
+    StreamWrap::InitializeTemplate(tpl);
+
+    NODE_SET_PROTOTYPE_METHOD(tpl, "getWindowSize", TTYWrap::GetWindowSize);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "setRawMode", SetRawMode);
+  }
+
   static void Initialize(Handle<Object> target) {
     StreamWrap::Initialize(target);
-
-    HandleScope scope;
-
-    Local<FunctionTemplate> t = FunctionTemplate::New(New);
-    t->SetClassName(String::NewSymbol("TTY"));
-
-    t->InstanceTemplate()->SetInternalFieldCount(1);
-
-    NODE_SET_PROTOTYPE_METHOD(t, "close", HandleWrap::Close);
-    NODE_SET_PROTOTYPE_METHOD(t, "unref", HandleWrap::Unref);
-
-    NODE_SET_PROTOTYPE_METHOD(t, "readStart", StreamWrap::ReadStart);
-    NODE_SET_PROTOTYPE_METHOD(t, "readStop", StreamWrap::ReadStop);
-    NODE_SET_PROTOTYPE_METHOD(t, "write", StreamWrap::Write);
-
-    NODE_SET_PROTOTYPE_METHOD(t, "getWindowSize", TTYWrap::GetWindowSize);
-    NODE_SET_PROTOTYPE_METHOD(t, "setRawMode", SetRawMode);
 
     NODE_SET_METHOD(target, "isTTY", IsTTY);
     NODE_SET_METHOD(target, "guessHandleType", GuessHandleType);
 
-    target->Set(String::NewSymbol("TTY"), t->GetFunction());
+    target->Set(String::NewSymbol("TTY"), Constructor<TTYWrap>());
   }
 
  private:
@@ -148,6 +139,8 @@ class TTYWrap : StreamWrap {
     return scope.Close(Integer::New(r));
   }
 
+  friend class Wrap;
+  template <class T>
   static Handle<Value> New(const Arguments& args) {
     HandleScope scope;
 
@@ -165,10 +158,11 @@ class TTYWrap : StreamWrap {
 
     return scope.Close(args.This());
   }
-
+  
   TTYWrap(Handle<Object> object, int fd, bool readable)
-      : StreamWrap(object, (uv_stream_t*)&handle_) {
+      : StreamWrap(object) {
     uv_tty_init(uv_default_loop(), &handle_, fd, readable);
+    handle_.data = this;
   }
 
   uv_tty_t handle_;

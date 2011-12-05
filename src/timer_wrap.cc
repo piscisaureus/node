@@ -23,10 +23,7 @@
 #include <handle_wrap.h>
 
 #define UNWRAP \
-  assert(!args.Holder().IsEmpty()); \
-  assert(args.Holder()->InternalFieldCount() > 0); \
-  TimerWrap* wrap =  \
-      static_cast<TimerWrap*>(args.Holder()->GetPointerFromInternalField(0)); \
+  TimerWrap* wrap = Unwrap<TimerWrap>(args); \
   if (!wrap) { \
     uv_err_t err; \
     err.code = UV_EBADF; \
@@ -53,42 +50,23 @@ using v8::Integer;
 
 class TimerWrap : public HandleWrap {
  public:
-  static void Initialize(Handle<Object> target) {
-    HandleScope scope;
-
-    HandleWrap::Initialize(target);
-
-    Local<FunctionTemplate> constructor = FunctionTemplate::New(New);
-    constructor->InstanceTemplate()->SetInternalFieldCount(1);
-    constructor->SetClassName(String::NewSymbol("Timer"));
-
-    NODE_SET_PROTOTYPE_METHOD(constructor, "close", HandleWrap::Close);
-
-    NODE_SET_PROTOTYPE_METHOD(constructor, "start", Start);
-    NODE_SET_PROTOTYPE_METHOD(constructor, "stop", Stop);
-    NODE_SET_PROTOTYPE_METHOD(constructor, "setRepeat", SetRepeat);
-    NODE_SET_PROTOTYPE_METHOD(constructor, "getRepeat", GetRepeat);
-    NODE_SET_PROTOTYPE_METHOD(constructor, "again", Again);
-
-    target->Set(String::NewSymbol("Timer"), constructor->GetFunction());
+  static void InitializeTemplate(Handle<FunctionTemplate> tpl) {
+    HandleWrap::InitializeTemplate(tpl);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "start", Start);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "stop", Stop);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "setRepeat", SetRepeat);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "getRepeat", GetRepeat);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "again", Again);    
   }
 
- private:
-  static Handle<Value> New(const Arguments& args) {
-    // This constructor should not be exposed to public javascript.
-    // Therefore we assert that we are not trying to call this as a
-    // normal function.
-    assert(args.IsConstructCall());
-
+  static void Initialize(Handle<Object> target) {
     HandleScope scope;
-    TimerWrap *wrap = new TimerWrap(args.This());
-    assert(wrap);
-
-    return scope.Close(args.This());
+    HandleWrap::Initialize(target);
+    target->Set(String::NewSymbol("Timer"), Constructor<TimerWrap>());
   }
 
   TimerWrap(Handle<Object> object)
-      : HandleWrap(object, (uv_handle_t*) &handle_) {
+    : HandleWrap(object) {
     active_ = false;
 
     int r = uv_timer_init(uv_default_loop(), &handle_);
@@ -104,6 +82,10 @@ class TimerWrap : public HandleWrap {
 
   ~TimerWrap() {
     if (!active_) uv_ref(uv_default_loop());
+  }
+
+  uv_handle_t* GetHandle() {
+    return reinterpret_cast<uv_handle_t*>(&handle_);
   }
 
   void StateChange() {

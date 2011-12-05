@@ -74,7 +74,7 @@ static void After(uv_fs_t *req) {
 
   FSReqWrap* req_wrap = (FSReqWrap*) req->data;
   assert(&req_wrap->req_ == req);
-  Local<Value> callback_v = req_wrap->object_->Get(oncomplete_sym);
+  Local<Value> callback_v = req_wrap->GetObject()->Get(oncomplete_sym);
   assert(callback_v->IsFunction());
   Local<Function> callback = Local<Function>::Cast(callback_v);
 
@@ -188,7 +188,7 @@ static void After(uv_fs_t *req) {
 
   TryCatch try_catch;
 
-  callback->Call(req_wrap->object_, argc, argv);
+  callback->Call(req_wrap->GetObject(), argc, argv);
 
   if (try_catch.HasCaught()) {
     FatalException(try_catch);
@@ -277,9 +277,9 @@ Local<Value> FSError(int errorno,
   int r = uv_fs_##func(uv_default_loop(), &req_wrap->req_,        \
       __VA_ARGS__, After);                                        \
   assert(r == 0);                                                 \
-  req_wrap->object_->Set(oncomplete_sym, callback);               \
+  req_wrap->GetObject()->Set(oncomplete_sym, callback);               \
   req_wrap->Dispatched();                                         \
-  return scope.Close(req_wrap->object_);
+  return scope.Close(req_wrap->GetObject());
 
 #define SYNC_CALL(func, path, ...)                                \
   fs_req_wrap req_wrap;                                           \

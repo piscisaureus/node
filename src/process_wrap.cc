@@ -26,10 +26,7 @@
 #include <stdlib.h>
 
 #define UNWRAP \
-  assert(!args.Holder().IsEmpty()); \
-  assert(args.Holder()->InternalFieldCount() > 0); \
-  ProcessWrap* wrap =  \
-      static_cast<ProcessWrap*>(args.Holder()->GetPointerFromInternalField(0)); \
+  ProcessWrap* wrap = Unwrap<ProcessWrap>(args); \
   if (!wrap) { \
     uv_err_t err; \
     err.code = UV_EBADF; \
@@ -74,6 +71,10 @@ class ProcessWrap : public HandleWrap {
     target->Set(String::NewSymbol("Process"), constructor->GetFunction());
   }
 
+  uv_handle_t* GetHandle() {
+    return reinterpret_cast<uv_handle_t*>(&process_);
+  }
+
  private:
   static Handle<Value> New(const Arguments& args) {
     // This constructor should not be exposed to public javascript.
@@ -88,8 +89,11 @@ class ProcessWrap : public HandleWrap {
     return scope.Close(args.This());
   }
 
-  ProcessWrap(Handle<Object> object) : HandleWrap(object, NULL) { }
+  ProcessWrap(Handle<Object> object) 
+    : HandleWrap(object) { 
+  }
   ~ProcessWrap() { }
+
 
   static Handle<Value> Spawn(const Arguments& args) {
     HandleScope scope;
@@ -151,22 +155,22 @@ class ProcessWrap : public HandleWrap {
     // options.stdin_stream
     Local<Value> stdin_stream_v = js_options->Get(String::New("stdinStream"));
     if (!stdin_stream_v.IsEmpty() && stdin_stream_v->IsObject()) {
-      PipeWrap* stdin_wrap = PipeWrap::Unwrap(stdin_stream_v->ToObject());
-      options.stdin_stream = stdin_wrap->UVHandle();
+      PipeWrap* stdin_wrap = Unwrap<PipeWrap>(stdin_stream_v->ToObject());
+      options.stdin_stream = stdin_wrap->GetUVPipe();
     }
 
     // options.stdout_stream
     Local<Value> stdout_stream_v = js_options->Get(String::New("stdoutStream"));
     if (!stdout_stream_v.IsEmpty() && stdout_stream_v->IsObject()) {
-      PipeWrap* stdout_wrap = PipeWrap::Unwrap(stdout_stream_v->ToObject());
-      options.stdout_stream = stdout_wrap->UVHandle();
+      PipeWrap* stdout_wrap = Unwrap<PipeWrap>(stdout_stream_v->ToObject());
+      options.stdout_stream = stdout_wrap->GetUVPipe();
     }
 
     // options.stderr_stream
     Local<Value> stderr_stream_v = js_options->Get(String::New("stderrStream"));
     if (!stderr_stream_v.IsEmpty() && stderr_stream_v->IsObject()) {
-      PipeWrap* stderr_wrap = PipeWrap::Unwrap(stderr_stream_v->ToObject());
-      options.stderr_stream = stderr_wrap->UVHandle();
+      PipeWrap* stderr_wrap = Unwrap<PipeWrap>(stderr_stream_v->ToObject());
+      options.stderr_stream = stderr_wrap->GetUVPipe();
     }
 
     // options.windows_verbatim_arguments
@@ -177,7 +181,7 @@ class ProcessWrap : public HandleWrap {
 
     int r = uv_spawn(uv_default_loop(), &wrap->process_, options);
 
-    wrap->SetHandle((uv_handle_t*)&wrap->process_);
+    wrap->process_.data = wrap;
     assert(wrap->process_.data == wrap);
 
     wrap->object_->Set(String::New("pid"), Integer::New(wrap->process_.pid));

@@ -44,10 +44,7 @@
 #endif
 
 #define UNWRAP \
-  assert(!args.Holder().IsEmpty()); \
-  assert(args.Holder()->InternalFieldCount() > 0); \
-  TCPWrap* wrap =  \
-      static_cast<TCPWrap*>(args.Holder()->GetPointerFromInternalField(0)); \
+  TCPWrap* wrap = Unwrap<TCPWrap>(args); \
   if (!wrap) { \
     uv_err_t err; \
     err.code = UV_EBADF; \
@@ -81,35 +78,8 @@ static Persistent<String> port_symbol;
 typedef class ReqWrap<uv_connect_t> ConnectWrap;
 
 
-Local<Object> TCPWrap::Instantiate() {
-  // If this assert fire then process.binding('tcp_wrap') hasn't been
-  // called yet.
-  assert(tcpConstructor.IsEmpty() == false);
-
-  HandleScope scope;
-  Local<Object> obj = tcpConstructor->NewInstance();
-
-  return scope.Close(obj);
-}
-
-
-void TCPWrap::Initialize(Handle<Object> target) {
-  HandleWrap::Initialize(target);
-  StreamWrap::Initialize(target);
-
-  HandleScope scope;
-
-  Local<FunctionTemplate> t = FunctionTemplate::New(New);
-  t->SetClassName(String::NewSymbol("TCP"));
-
-  t->InstanceTemplate()->SetInternalFieldCount(1);
-
-  NODE_SET_PROTOTYPE_METHOD(t, "close", HandleWrap::Close);
-
-  NODE_SET_PROTOTYPE_METHOD(t, "readStart", StreamWrap::ReadStart);
-  NODE_SET_PROTOTYPE_METHOD(t, "readStop", StreamWrap::ReadStop);
-  NODE_SET_PROTOTYPE_METHOD(t, "write", StreamWrap::Write);
-  NODE_SET_PROTOTYPE_METHOD(t, "shutdown", StreamWrap::Shutdown);
+void TCPWrap::InitializeTemplate(Handle<FunctionTemplate> t) {
+  Wrap::InitializeTemplate(t);
 
   NODE_SET_PROTOTYPE_METHOD(t, "bind", Bind);
   NODE_SET_PROTOTYPE_METHOD(t, "listen", Listen);
@@ -124,28 +94,20 @@ void TCPWrap::Initialize(Handle<Object> target) {
 #ifdef _WIN32
   NODE_SET_PROTOTYPE_METHOD(t, "setSimultaneousAccepts", SetSimultaneousAccepts);
 #endif
+}
 
-  tcpConstructor = Persistent<Function>::New(t->GetFunction());
+
+void TCPWrap::Initialize(Handle<Object> target) {
+  HandleWrap::Initialize(target);
+  StreamWrap::Initialize(target);
+
+  HandleScope scope;
 
   family_symbol = NODE_PSYMBOL("family");
   address_symbol = NODE_PSYMBOL("address");
   port_symbol = NODE_PSYMBOL("port");
 
-  target->Set(String::NewSymbol("TCP"), tcpConstructor);
-}
-
-
-Handle<Value> TCPWrap::New(const Arguments& args) {
-  // This constructor should not be exposed to public javascript.
-  // Therefore we assert that we are not trying to call this as a
-  // normal function.
-  assert(args.IsConstructCall());
-
-  HandleScope scope;
-  TCPWrap* wrap = new TCPWrap(args.This());
-  assert(wrap);
-
-  return scope.Close(args.This());
+  target->Set(String::NewSymbol("TCP"), Constructor<TCPWrap>());
 }
 
 
@@ -359,12 +321,10 @@ void TCPWrap::OnConnection(uv_stream_t* handle, int status) {
 
   if (status == 0) {
     // Instantiate the client javascript object and handle.
-    Local<Object> client_obj = Instantiate();
+    Handle<Object> client_obj = Instantiate<TCPWrap>();
 
     // Unwrap the client javascript object.
-    assert(client_obj->InternalFieldCount() > 0);
-    TCPWrap* client_wrap =
-        static_cast<TCPWrap*>(client_obj->GetPointerFromInternalField(0));
+    TCPWrap* client_wrap = Unwrap<TCPWrap>(client_obj);
 
     int r = uv_accept(handle, (uv_stream_t*)&client_wrap->handle_);
 
@@ -389,7 +349,7 @@ void TCPWrap::AfterConnect(uv_connect_t* req, int status) {
   HandleScope scope;
 
   // The wrap and request objects should still be there.
-  assert(req_wrap->object_.IsEmpty() == false);
+  assert(req_wrap->GetObject().IsEmpty() == false);
   assert(wrap->object_.IsEmpty() == false);
 
   if (status) {
@@ -399,10 +359,10 @@ void TCPWrap::AfterConnect(uv_connect_t* req, int status) {
   Local<Value> argv[3] = {
     Integer::New(status),
     Local<Value>::New(wrap->object_),
-    Local<Value>::New(req_wrap->object_)
+    Local<Value>::New(req_wrap->GetObject())
   };
 
-  MakeCallback(req_wrap->object_, "oncomplete", 3, argv);
+  MakeCallback(req_wrap->GetObject(), "oncomplete", 3, argv);
 
   delete req_wrap;
 }
@@ -433,7 +393,7 @@ Handle<Value> TCPWrap::Connect(const Arguments& args) {
     delete req_wrap;
     return scope.Close(v8::Null());
   } else {
-    return scope.Close(req_wrap->object_);
+    return scope.Close(req_wrap->GetObject());
   }
 }
 
@@ -460,7 +420,7 @@ Handle<Value> TCPWrap::Connect6(const Arguments& args) {
     delete req_wrap;
     return scope.Close(v8::Null());
   } else {
-    return scope.Close(req_wrap->object_);
+    return scope.Close(req_wrap->GetObject());
   }
 }
 

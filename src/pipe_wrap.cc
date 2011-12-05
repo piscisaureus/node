@@ -27,10 +27,7 @@
 #include <pipe_wrap.h>
 
 #define UNWRAP \
-  assert(!args.Holder().IsEmpty()); \
-  assert(args.Holder()->InternalFieldCount() > 0); \
-  PipeWrap* wrap =  \
-      static_cast<PipeWrap*>(args.Holder()->GetPointerFromInternalField(0)); \
+  PipeWrap* wrap = Unwrap<PipeWrap>(args); \
   if (!wrap) { \
     uv_err_t err; \
     err.code = UV_EBADF; \
@@ -61,24 +58,12 @@ Persistent<Function> pipeConstructor;
 typedef class ReqWrap<uv_connect_t> ConnectWrap;
 
 
-uv_pipe_t* PipeWrap::UVHandle() {
-  return &handle_;
-}
-
-
-PipeWrap* PipeWrap::Unwrap(Local<Object> obj) {
-  assert(!obj.IsEmpty());
-  assert(obj->InternalFieldCount() > 0);
-  return static_cast<PipeWrap*>(obj->GetPointerFromInternalField(0));
-}
-
-
 void PipeWrap::Initialize(Handle<Object> target) {
   StreamWrap::Initialize(target);
 
   HandleScope scope;
 
-  Local<FunctionTemplate> t = FunctionTemplate::New(New);
+  Local<FunctionTemplate> t = FunctionTemplate::New();
   t->SetClassName(String::NewSymbol("Pipe"));
 
   t->InstanceTemplate()->SetInternalFieldCount(1);
@@ -101,7 +86,7 @@ void PipeWrap::Initialize(Handle<Object> target) {
   target->Set(String::NewSymbol("Pipe"), pipeConstructor);
 }
 
-
+template <class t>
 Handle<Value> PipeWrap::New(const Arguments& args) {
   // This constructor should not be exposed to public javascript.
   // Therefore we assert that we are not trying to call this as a
@@ -117,7 +102,7 @@ Handle<Value> PipeWrap::New(const Arguments& args) {
 
 
 PipeWrap::PipeWrap(Handle<Object> object, bool ipc)
-    : StreamWrap(object, (uv_stream_t*) &handle_) {
+    : StreamWrap(object) {
   int r = uv_pipe_init(uv_default_loop(), &handle_, ipc);
   assert(r == 0); // How do we proxy this error up to javascript?
                   // Suggestion: uv_pipe_init() returns void.
@@ -201,7 +186,7 @@ void PipeWrap::AfterConnect(uv_connect_t* req, int status) {
   HandleScope scope;
 
   // The wrap and request objects should still be there.
-  assert(req_wrap->object_.IsEmpty() == false);
+  assert(req_wrap->GetObject().IsEmpty() == false);
   assert(wrap->object_.IsEmpty() == false);
 
   if (status) {
@@ -211,10 +196,10 @@ void PipeWrap::AfterConnect(uv_connect_t* req, int status) {
   Local<Value> argv[3] = {
     Integer::New(status),
     Local<Value>::New(wrap->object_),
-    Local<Value>::New(req_wrap->object_)
+    Local<Value>::New(req_wrap->GetObject())
   };
 
-  MakeCallback(req_wrap->object_, "oncomplete", 3, argv);
+  MakeCallback(req_wrap->GetObject(), "oncomplete", 3, argv);
 
   delete req_wrap;
 }
@@ -249,7 +234,7 @@ Handle<Value> PipeWrap::Connect(const Arguments& args) {
 
   req_wrap->Dispatched();
 
-  return scope.Close(req_wrap->object_);
+  return scope.Close(req_wrap->GetObject());
 }
 
 
