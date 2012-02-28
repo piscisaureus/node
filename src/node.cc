@@ -20,6 +20,7 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <node.h>
+#include <node_unicode.h>
 
 #include <uv.h>
 
@@ -2050,6 +2051,32 @@ static Handle<Value> DebugProcess(const Arguments& args);
 static Handle<Value> DebugPause(const Arguments& args);
 static Handle<Value> DebugEnd(const Arguments& args);
 
+
+Handle<Value> TestUtf8New(const Arguments& args) {
+  HandleScope scope;
+  Utf8Writer writer(args[0]->ToString());
+  ssize_t size1 = writer.utf8_length();
+  char* buffer = new char[size1]; 
+  ssize_t size2 = writer.Write(buffer, -1);
+  assert(size1 == size2);
+  delete[] buffer;
+  return Undefined();
+}
+
+
+template <bool hint>
+Handle<Value> TestUtf8Old(const Arguments& args) {
+  HandleScope scope;
+  Handle<String> s = args[0]->ToString();
+  ssize_t size1 = s->Utf8Length();
+  char* buffer = new char[size1]; 
+  s->WriteUtf8(buffer, -1, NULL, String::NO_NULL_TERMINATION |
+                                 (hint ? String::HINT_MANY_WRITES_EXPECTED : 0));
+  delete[] buffer;
+  return Undefined();
+}
+
+
 Handle<Object> SetupProcessObject(int argc, char *argv[]) {
   HandleScope scope;
 
@@ -2163,6 +2190,10 @@ Handle<Object> SetupProcessObject(int argc, char *argv[]) {
   NODE_SET_METHOD(process, "cwd", Cwd);
 
   NODE_SET_METHOD(process, "umask", Umask);
+
+  NODE_SET_METHOD(process, "test_utf8_new", TestUtf8New);
+  NODE_SET_METHOD(process, "test_utf8_old_hint", TestUtf8Old<true>);
+  NODE_SET_METHOD(process, "test_utf8_old_nohint", TestUtf8Old<false>);
 
 #ifdef __POSIX__
   NODE_SET_METHOD(process, "getuid", GetUid);

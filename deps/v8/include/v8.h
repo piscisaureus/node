@@ -112,6 +112,8 @@ namespace internal {
 
 class Arguments;
 class Object;
+class String;
+class ConsString;
 class Heap;
 class HeapObject;
 class Isolate;
@@ -1248,6 +1250,11 @@ class String : public Primitive {
    */
   V8EXPORT bool CanMakeExternal();
 
+  /**
+   * Returns true if the string has only ascii (0-127) characters.
+   */
+  V8EXPORT bool HasOnlyAsciiChars();
+
   /** Creates an undetectable string from the supplied ASCII or UTF-8 data.*/
   V8EXPORT static Local<String> NewUndetectable(const char* data,
                                                 int length = -1);
@@ -1322,6 +1329,62 @@ class String : public Primitive {
     // Disallow copying and assigning.
     Value(const Value&);
     void operator=(const Value&);
+  };
+
+  /**
+   * Provides direct access to string memory. The user has to be aware that
+   * each buffer returned might contain either 8-bit or 16-bit characters. As
+   * long as the iterator exists no other interaction with the v8 heap is
+   * allowed, because the heap might be in inconsistent state.
+   */
+  class V8EXPORT Memory {
+    static const int kCurrentIsSecondTag = 1;
+    static const int kParentStackSize = 1024;
+    
+   public:
+    static enum StorageType {
+      kNone = 0,
+      kAscii = 1,
+      kTwoByte = 2
+    };
+    explicit Memory(Handle<v8::Value> obj);
+    ~Memory() {
+      if (ptr_ != NULL) {
+        rewind();
+      }
+    }
+    const void* operator*() { return ptr_; }
+    int length() { return length_; }
+    StorageType storage_type() { return storage_type_; }
+    bool Next() {
+      if (ptr_ != NULL) {
+        next();
+      }
+      return ptr_ != NULL;
+    }
+
+
+   private:
+    void next();
+    void rewind();
+    inline void down();
+    inline void set_flat(v8::internal::String* flat);
+    inline void set_end();
+    inline void push_parent(bool second);
+    inline void pop_parent();
+
+    const void* ptr_;
+    int length_;
+    StorageType storage_type_;
+    v8::internal::ConsString* current_;
+    intptr_t parent_;
+    bool did_visit_second_;
+    int depth_;
+    intptr_t parents_[kParentStackSize];
+
+    // Disallow copying and assigning.
+    Memory(const Memory&);
+    void operator=(const Memory&);
   };
 
  private:

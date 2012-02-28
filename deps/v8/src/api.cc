@@ -4628,6 +4628,12 @@ bool v8::String::CanMakeExternal() {
 }
 
 
+bool v8::String::HasOnlyAsciiChars() {
+  i::Handle<i::String> obj = Utils::OpenHandle(this);
+  return obj->HasOnlyAsciiChars();
+}
+
+
 Local<v8::Object> v8::Object::New() {
   i::Isolate* isolate = i::Isolate::Current();
   EnsureInitializedForIsolate(isolate, "v8::Object::New()");
@@ -5282,6 +5288,195 @@ String::Value::Value(v8::Handle<v8::Value> obj)
 String::Value::~Value() {
   i::DeleteArray(str_);
 }
+
+
+static intptr_t kTaggedNull = i::kHeapObjectTag;
+
+String::Memory::Memory(v8::Handle<v8::Value> obj)
+    : ptr_(NULL), length_(0), storage_type_(kNone), parent_(kTaggedNull), depth_(0) {
+  i::Isolate* isolate = i::Isolate::Current();
+  if (IsDeadCheck(isolate, "v8::String::Memory::Memory()")) return;
+
+  // Convert the object to a string if necessary. If the handle is empty, or
+  // conversion fails, bail out.
+  if (obj.IsEmpty()) return;
+  ENTER_V8(isolate);
+  i::HandleScope scope(isolate);
+  TryCatch try_catch;
+  Handle<String> str = obj->ToString();
+  if (str.IsEmpty()) return;
+
+  i::Handle<i::String> istr = Utils::OpenHandle(*str);
+
+  if (istr->IsFlat()) {
+    // Fast case - no need it iterate.
+    did_visit_second_ = true;
+    set_flat(*istr);
+  } else {
+    current_ = i::ConsString::cast(*istr);
+    down();
+  }
+}
+
+
+inline void String::Memory::pop_parent() {
+  i::String* child = current_;
+  if (!(parent_ & kCurrentIsSecondTag)) {
+    // Moving up on the left hand side
+    current_ = reinterpret_cast<i::ConsString*>(parent_ + i::kHeapObjectTag);
+    did_visit_second_ = false;
+  } else {
+    // Moving up on the right hand side
+    current_ = reinterpret_cast<i::ConsString*>(parent_ - kCurrentIsSecondTag + i::kHeapObjectTag);
+    did_visit_second_ = true;
+  }
+  if (--depth_ < kParentStackSize) {
+    parent_ = parents_[depth_];
+  } else if (!did_visit_second_) {
+    parent_ = reinterpret_cast<intptr_t>(current_->unchecked_first());
+    current_->set_first(child, i::SKIP_WRITE_BARRIER);
+  } else {
+    parent_ = reinterpret_cast<intptr_t>(current_->unchecked_second());
+    current_->set_second(child, i::SKIP_WRITE_BARRIER);
+  }
+  ASSERT_NE(current_, parent_);
+}
+
+
+inline void String::Memory::push_parent(bool second) {
+  if (second && depth_ == 0) {
+    // Optimization: no need to ever go back.
+    return;
+  }
+  if (depth_ < kParentStackSize) {
+    parents_[depth_] = parent_;
+  } else if (!second) {
+    current_->set_first(reinterpret_cast<i::String*>(parent_), i::SKIP_WRITE_BARRIER);
+  } else {
+    current_->set_second(reinterpret_cast<i::String*>(parent_), i::SKIP_WRITE_BARRIER);
+  }
+  if (!second) {
+    parent_ = reinterpret_cast<intptr_t>(current_) - i::kHeapObjectTag;
+  } else {
+    parent_ = reinterpret_cast<intptr_t>(current_) - i::kHeapObjectTag + kCurrentIsSecondTag;
+  }
+  depth_++;
+}
+
+
+void String::Memory::rewind() {
+  // Iteratate to the root and restore all `first` fields.
+  while (depth_ > 0) {
+    pop_parent();
+  }
+}
+
+
+inline void String::Memory::down() {
+  // Iterate downward until a non-cons string is reached.
+  i::String* child = current_->first();
+  while (i::StringShape(child).IsCons()) {
+    push_parent(false);
+    current_ = i::ConsString::cast(child);
+    child = current_->first();
+  }
+  did_visit_second_ = false;
+  set_flat(child);
+}
+
+
+void String::Memory::next() {
+  // Iterate upward until we reach a branch whose right hand side we didn't
+  // visit yet.
+  while (did_visit_second_) {
+    // When we reach the top then bail out
+    if (depth_ == 0) {
+      set_end();
+      return;
+    }
+    pop_parent();
+  }
+
+
+  i::String* child = current_->second();
+  if (i::StringShape(child).IsCons()) {
+    push_parent(true);
+    current_ = i::ConsString::cast(child);
+    down();
+  } else {
+    did_visit_second_ = true;
+    set_flat(child);
+  }
+}
+
+
+// MSVC decides not to inline this but forcing it to do so saves valuable cycles.
+// I'm forcing inlining here, hopefully the v8 team will not come and bomb my house.
+#if defined(_MSC_VER)
+#define strong_inline __forceinline
+#elif defined(__GNUC__)
+#define strong_inline __attribute__((always_inline))
+#else
+#define strong_inline inline
+#endif
+
+strong_inline void String::Memory::set_flat(i::String* string) {
+  // Unfortunately String::GetFlatContent is not really inline-friendly.
+  i::StringShape shape(string);
+  if (shape.representation_tag() == i::kSlicedStringTag) {
+    i::SlicedString* slice = i::SlicedString::cast(string);
+    i::String* parent = slice->parent();
+    i::StringShape parent_shape(parent);
+    length_ = slice->length();
+    if (parent_shape.encoding_tag() == i::kAsciiStringTag) {
+      storage_type_ = kAscii;
+      if (parent_shape.representation_tag() == i::kSeqStringTag) {
+        ptr_ = i::SeqAsciiString::cast(parent)->GetChars() + slice->offset();
+      } else {
+        ASSERT(parent_shape.representation_tag() == kExternalStringTag);
+        ptr_ = i::ExternalAsciiString::cast(parent)->GetChars() + slice->offset();
+      }
+    } else {
+      ASSERT(parent_shape.encoding_tag() == kTwoByteStringTag);
+      storage_type_ = kTwoByte;
+      if (parent_shape.representation_tag() == i::kSeqStringTag) {
+        ptr_ = i::SeqTwoByteString::cast(parent)->GetChars() + slice->offset();
+      } else {
+        ASSERT(parent_shape.representation_tag() == kExternalStringTag);
+        ptr_ = i::ExternalTwoByteString::cast(parent)->GetChars() + slice->offset();
+      }
+    }
+  } else {
+    length_ = string->length();
+    if (shape.encoding_tag() == i::kAsciiStringTag) {
+      storage_type_ = kAscii;
+      if (shape.representation_tag() == i::kSeqStringTag) {
+        ptr_ = i::SeqAsciiString::cast(string)->GetChars();
+      } else {
+        ASSERT(shape.representation_tag() == kExternalStringTag);
+        ptr_ = i::ExternalAsciiString::cast(string)->GetChars();
+      }
+    } else {
+      ASSERT(shape.encoding_tag() == kTwoByteStringTag);
+      storage_type_ = kTwoByte;
+      if (shape.representation_tag() == i::kSeqStringTag) {
+        ptr_ = i::SeqTwoByteString::cast(string)->GetChars();
+      } else {
+        ASSERT(shape.representation_tag() == kExternalStringTag);
+        ptr_ = i::ExternalTwoByteString::cast(string)->GetChars();
+      }
+    }
+  }
+}
+
+
+// Force inline would be nice here too.
+inline void String::Memory::set_end() {
+  ptr_ = NULL;
+  length_ = 0;
+  storage_type_ = kNone;
+}
+
 
 Local<Value> Exception::RangeError(v8::Handle<v8::String> raw_message) {
   i::Isolate* isolate = i::Isolate::Current();
