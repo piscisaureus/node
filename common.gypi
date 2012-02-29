@@ -35,6 +35,7 @@
         },
       },
       'Release': {
+        'defines': [ 'NDEBUG', '_NDEBUG' ],
         'cflags': [ '-O3', '-fdata-sections', '-ffunction-sections' ],
         'conditions': [
           ['target_arch=="x64"', {
