@@ -38,7 +38,7 @@ function benchmark(size, shape, unicode, iterations) {
       i, start, end;
   
   process.stdout.write("size: " + string.length + ", shape: " + shape);
-  process.stdout.write(", content: " + ["ansi", "single nonansi", "mixed"][unicode]);
+  process.stdout.write(", content: " + ["ascii", "single nonascii", "mixed"][unicode]);
   process.stdout.write(", iterations: " + iterations);
   
   process.stdout.write("\nnew: ");

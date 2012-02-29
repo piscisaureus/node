@@ -5293,18 +5293,24 @@ String::Value::~Value() {
 static intptr_t kTaggedNull = i::kHeapObjectTag;
 
 String::Memory::Memory(v8::Handle<v8::Value> obj)
-    : ptr_(NULL), length_(0), storage_type_(kNone), parent_(kTaggedNull), depth_(0) {
+    : depth_(0) {
   i::Isolate* isolate = i::Isolate::Current();
   if (IsDeadCheck(isolate, "v8::String::Memory::Memory()")) return;
 
   // Convert the object to a string if necessary. If the handle is empty, or
   // conversion fails, bail out.
-  if (obj.IsEmpty()) return;
+  if (obj.IsEmpty()) {
+    set_end();
+    return;
+  }
   ENTER_V8(isolate);
   i::HandleScope scope(isolate);
   TryCatch try_catch;
   Handle<String> str = obj->ToString();
-  if (str.IsEmpty()) return;
+  if (str.IsEmpty()) {
+    set_end();
+    return;
+  }
 
   i::Handle<i::String> istr = Utils::OpenHandle(*str);
 

@@ -88,27 +88,30 @@ static inline ssize_t string_to_utf8(Handle<String> value, char* dest, ssize_t d
         {
           const uint16_t* src_pos = reinterpret_cast<const uint16_t*>(*it);
           const uint16_t* src_end = src_pos + it.length();
+          // Check if we were left with a lead surrogate from another piece.
+          if (lead_surrogate && src_pos < src_end) {
+            // Now c is supposed to be a high surrogate
+            uint16_t c = *src_pos;
+            if (c >= 0xd800 && c <= 0xdfff) {
+              uint32_t cp = 0x10000 + ((lead_surrogate - 0xd800) << 10) + 
+                            (c - 0xdc00);
+              assert(cp >= 0x10000 && cp <= 0x10ffff);
+              EMIT(4,
+                    0xe0 | (cp >> 18), // & 0x08
+                    0x80 | ((cp >> 12) & 0x3f),
+                    0x80 | ((cp >> 6) & 0x3f),
+                    0x80 | (cp & 0x3f));
+              lead_surrogate = 0;
+              continue;
+            } else {
+              // Invalid
+              EMIT(3, 0xef, 0xbf, 0xbd);
+              lead_surrogate = 0;
+            }
+            src_pos++;
+          }
           for ( ; src_pos < src_end; src_pos++) {
             uint16_t c = *src_pos;
-            if (lead_surrogate) {
-              // Now c is supposed to be a high surrogate
-              if (c >= 0xd800 && c <= 0xdfff) {
-                uint32_t cp = 0x10000 + ((lead_surrogate - 0xd800) << 10) + 
-                              (c - 0xdc00);
-                assert(cp >= 0x10000 && cp <= 0x10ffff);
-                EMIT(4,
-                     0xe0 | (c >> 18), // & 0x08
-                     0x80 | ((c >> 12) & 0x3f),
-                     0x80 | ((c >> 6) & 0x3f),
-                     0x80 | (c & 0x3f));
-                lead_surrogate = 0;
-                continue;
-              } else {
-                // Invalid
-                EMIT(3, 0xef, 0xbf, 0xbd);
-                lead_surrogate = 0;
-              }
-            }
             if (c < 0x80) {
               EMIT(1, c);
             } else if (c < 0x800) {
@@ -122,7 +125,29 @@ static inline ssize_t string_to_utf8(Handle<String> value, char* dest, ssize_t d
                    0x80 | (c & 0x3f));
             } else if (c >= 0xdc00) {
               // Surrogate pair - lead
-              lead_surrogate = c;
+              // Try to grab the trail surrogate immediately, so we can move
+              // the lead_surrogate test outside of the loop.
+              if (src_pos + 1 < src_end) {
+                uint16_t c2 = *(src_pos + 1);
+                if (c2 >= 0xd800 && c2 <= 0xdfff) {
+                  // Lead surrogate followed by trail surrogate
+                  uint32_t cp = 0x10000 + ((c - 0xd800) << 10) + 
+                                (c2 - 0xdc00);
+                  assert(cp >= 0x10000 && cp <= 0x10ffff);
+                  EMIT(4,
+                       0xe0 | (cp >> 18), // & 0x08
+                       0x80 | ((cp >> 12) & 0x3f),
+                       0x80 | ((cp >> 6) & 0x3f),
+                       0x80 | (cp & 0x3f));
+                  src_pos++;
+                } else {
+                  // Invalid surrogate pair.
+                  EMIT(3, 0xef, 0xbf, 0xbd);
+                }
+              } else {
+                lead_surrogate = c;
+              }
+              
             } else {
               // Surrogate pair - unexpected trail
               EMIT(3, 0xef, 0xbf, 0xbd);
@@ -134,6 +159,10 @@ static inline ssize_t string_to_utf8(Handle<String> value, char* dest, ssize_t d
       default:
         assert(0);
     }
+  }
+  // Check if the last character parsed was a lead surrogate
+  if (lead_surrogate) {
+    EMIT(3, 0xef, 0xbf, 0xbd);
   }
  out:
   return dest_pos - dest;
