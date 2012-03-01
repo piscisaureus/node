@@ -5304,42 +5304,37 @@ String::Value::~Value() {
 }
 
 
-static intptr_t kTaggedNull = i::kHeapObjectTag;
-
-String::Memory::Memory(v8::Handle<v8::Value> obj)
+String::Memory::Memory(v8::Handle<v8::String> str)
     : depth_(0) {
-  i::Isolate* isolate = i::Isolate::Current();
-  if (IsDeadCheck(isolate, "v8::String::Memory::Memory()")) return;
-
-  // Convert the object to a string if necessary. If the handle is empty, or
-  // conversion fails, bail out.
-  if (obj.IsEmpty()) {
-    set_end();
-    return;
-  }
+  i::Isolate* isolate = Utils::OpenHandle(*str)->GetIsolate();
   ENTER_V8(isolate);
-  i::HandleScope scope(isolate);
-  TryCatch try_catch;
-  Handle<String> str = obj->ToString();
-  if (str.IsEmpty()) {
-    set_end();
-    return;
-  }
+  if (IsDeadCheck(isolate, "v8::String::Memory::Memory()")) return;
+  
+  i::String* istr = *Utils::OpenHandle(*str);
 
-  i::Handle<i::String> istr = Utils::OpenHandle(*str);
-
-  if (istr->IsFlat()) {
+  if (!i::StringShape(istr).IsCons()) {
     // Fast case - no need it iterate.
     did_visit_second_ = true;
-    set_flat(*istr);
+    set_flat(istr);
   } else {
-    current_ = i::ConsString::cast(*istr);
+    current_ = i::ConsString::cast(istr);
     down();
   }
 }
 
 
-inline void String::Memory::pop_parent() {
+// MSVC decides not to inline some functions this but forcing it to do so saves valuable cycles.
+// I'm forcing inlining here, hopefully the v8 team will not come and bomb my house.
+#if defined(_MSC_VER)
+#define strong_inline __forceinline
+#elif defined(__GNUC__)
+#define strong_inline __attribute__((always_inline))
+#else
+#define strong_inline inline
+#endif
+
+
+strong_inline void String::Memory::pop_parent() {
   i::String* child = current_;
   if (!(parent_ & kCurrentIsSecondTag)) {
     // Moving up on the left hand side
@@ -5362,7 +5357,7 @@ inline void String::Memory::pop_parent() {
 }
 
 
-inline void String::Memory::push_parent(bool second) {
+strong_inline void String::Memory::push_parent(bool second) {
   if (second && depth_ == 0) {
     // Optimization: no need to ever go back.
     return;
@@ -5429,16 +5424,6 @@ void String::Memory::next() {
 }
 
 
-// MSVC decides not to inline this but forcing it to do so saves valuable cycles.
-// I'm forcing inlining here, hopefully the v8 team will not come and bomb my house.
-#if defined(_MSC_VER)
-#define strong_inline __forceinline
-#elif defined(__GNUC__)
-#define strong_inline __attribute__((always_inline))
-#else
-#define strong_inline inline
-#endif
-
 strong_inline void String::Memory::set_flat(i::String* string) {
   // Unfortunately String::GetFlatContent is not really inline-friendly.
   i::StringShape shape(string);
@@ -5490,7 +5475,7 @@ strong_inline void String::Memory::set_flat(i::String* string) {
 
 
 // Force inline would be nice here too.
-inline void String::Memory::set_end() {
+strong_inline void String::Memory::set_end() {
   ptr_ = NULL;
   length_ = 0;
   storage_type_ = kNone;

@@ -1347,7 +1347,7 @@ class String : public Primitive {
       kAscii = 1,
       kTwoByte = 2
     };
-    explicit Memory(Handle<v8::Value> obj);
+    explicit Memory(Handle<v8::String> obj);
     ~Memory() {
       if (ptr_ != NULL) {
         rewind();
