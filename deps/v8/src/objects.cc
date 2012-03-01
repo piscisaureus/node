@@ -6085,6 +6085,66 @@ String::FlatContent String::GetFlatContent() {
 }
 
 
+int String::RecursivelySerializeToUtf8(char* buffer, int start, int end) {
+  if (IsAsciiRepresentation()) {
+    WriteToFlat(this, buffer, start, end);
+    return end - start;
+  }
+  switch (StringShape(this).representation_tag()) {
+    case kExternalStringTag: {
+      const uc16* data =
+          ExternalTwoByteString::cast(this)->GetChars();
+      char* current = buffer;
+      for (int i = start; i < end; i++) {
+        uc16 character = data[i];
+        current +=
+            unibrow::Utf8::Encode(current, character);
+      }
+      return current - buffer;
+    }
+    case kSeqStringTag: {
+      const uc16* data =
+          SeqTwoByteString::cast(this)->GetChars();
+      char* current = buffer;
+      for (int i = start; i < end; i++) {
+        uc16 character = data[i];
+        current +=
+            unibrow::Utf8::Encode(current, character);
+      }
+      return current - buffer;
+    }
+    case kConsStringTag: {
+      ConsString* cons_string = ConsString::cast(this);
+      String* first = cons_string->first();
+      int boundary = first->length();
+      if (start >= boundary) {
+        // Only need RHS.
+        return cons_string->second()->RecursivelySerializeToUtf8(
+            buffer, start - boundary, end - boundary);
+      } else if (end <= boundary) {
+        // Only need LHS.
+        return first->RecursivelySerializeToUtf8(
+            buffer, start - boundary, end - boundary);
+      } else {
+        int utf8_bytes = first->RecursivelySerializeToUtf8(
+            buffer, start, boundary);
+        return utf8_bytes +
+            cons_string->second()->RecursivelySerializeToUtf8(
+            buffer + utf8_bytes, 0, end - boundary);
+      }
+    }
+    case kSlicedStringTag: {
+      SlicedString* slice = SlicedString::cast(this);
+      unsigned offset = slice->offset();
+      return slice->parent()->RecursivelySerializeToUtf8(
+          buffer, start + offset, end + offset);
+    }
+  }
+  UNREACHABLE();
+  return 0;
+}
+
+
 SmartArrayPointer<char> String::ToCString(AllowNullsFlag allow_nulls,
                                           RobustnessFlag robust_flag,
                                           int offset,

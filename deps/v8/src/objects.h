@@ -6746,6 +6746,7 @@ class String: public HeapObject {
 
   inline int Utf8Length() { return Utf8Length(this, 0, length()); }
   static int Utf8Length(String* input, int from, int to);
+  int RecursivelySerializeToUtf8(char* buffer, int start, int end);
 
   // Return a 16 bit Unicode representation of the string.
   // The string should be nearly flat, otherwise the performance of

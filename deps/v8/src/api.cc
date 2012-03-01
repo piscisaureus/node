@@ -3702,11 +3702,12 @@ int String::WriteUtf8(char* buffer,
   LOG_API(isolate, "String::WriteUtf8");
   ENTER_V8(isolate);
   i::Handle<i::String> str = Utils::OpenHandle(this);
+  int string_length = str->length();
   if (str->IsAsciiRepresentation()) {
     int len;
     if (capacity == -1) {
       capacity = str->length() + 1;
-      len = str->length();
+      len = string_length;
     } else {
       len = i::Min(capacity, str->length());
     }
@@ -3717,6 +3718,19 @@ int String::WriteUtf8(char* buffer,
       return len + 1;
     }
     return len;
+  }
+
+  if (capacity == -1 || capacity >= string_length * 3) {
+    if (string_length < 100) {
+      int utf8_bytes =
+          str->RecursivelySerializeToUtf8(buffer, 0, string_length);
+      if ((options & NO_NULL_TERMINATION) == 0 &&
+          (capacity > utf8_bytes || capacity == -1)) {
+        buffer[utf8_bytes++] = '\0';
+      }
+      if (nchars_ref != NULL) *nchars_ref = string_length;
+      return utf8_bytes;
+    }
   }
 
   i::StringInputBuffer& write_input_buffer = *isolate->write_input_buffer();
