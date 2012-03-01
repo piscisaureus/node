@@ -1332,12 +1332,12 @@ class String : public Primitive {
   };
 
   /**
-   * Provides direct access to string memory. The user has to be aware that
+   * Provides direct read access to string memory. The user has to be aware that
    * each buffer returned might contain either 8-bit or 16-bit characters. As
    * long as the iterator exists no other interaction with the v8 heap is
    * allowed, because the heap might be in inconsistent state.
    */
-  class V8EXPORT Memory {
+  class V8EXPORT ReadMemory {
     static const int kCurrentIsSecondTag = 1;
     static const int kParentStackSize = 1024;
     
@@ -1347,8 +1347,8 @@ class String : public Primitive {
       kAscii = 1,
       kTwoByte = 2
     };
-    explicit Memory(Handle<v8::String> obj);
-    ~Memory() {
+    explicit ReadMemory(Handle<v8::String> obj);
+    ~ReadMemory() {
       if (ptr_ != NULL) {
         rewind();
       }
@@ -1383,8 +1383,8 @@ class String : public Primitive {
     intptr_t parents_[kParentStackSize];
 
     // Disallow copying and assigning.
-    Memory(const Memory&);
-    void operator=(const Memory&);
+    ReadMemory(const ReadMemory&);
+    void operator=(const ReadMemory&);
   };
 
  private:

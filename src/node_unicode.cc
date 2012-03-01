@@ -43,7 +43,7 @@ static inline ssize_t string_to_utf8(Handle<String> value, char* dest, ssize_t d
   char* dest_pos = dest;
   char* dest_end = dest + dest_size;
   uint16_t lead_surrogate = 0;
-  String::Memory it(value);
+  String::ReadMemory it(value);
     
   for(; *it; it.Next()) {
     switch (it.storage_type()) {
@@ -84,7 +84,7 @@ static inline ssize_t string_to_utf8(Handle<String> value, char* dest, ssize_t d
         }
         break;
 
-      case String::Memory::kTwoByte:
+      case String::ReadMemory::kTwoByte:
         {
           const uint16_t* src_pos = reinterpret_cast<const uint16_t*>(*it);
           const uint16_t* src_end = src_pos + it.length();

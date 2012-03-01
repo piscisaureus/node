@@ -5304,11 +5304,11 @@ String::Value::~Value() {
 }
 
 
-String::Memory::Memory(v8::Handle<v8::String> str)
+String::ReadMemory::ReadMemory(v8::Handle<v8::String> str)
     : depth_(0) {
   i::Isolate* isolate = Utils::OpenHandle(*str)->GetIsolate();
   ENTER_V8(isolate);
-  if (IsDeadCheck(isolate, "v8::String::Memory::Memory()")) return;
+  if (IsDeadCheck(isolate, "v8::String::ReadMemory::Memory()")) return;
   
   i::String* istr = *Utils::OpenHandle(*str);
 
@@ -5334,7 +5334,7 @@ String::Memory::Memory(v8::Handle<v8::String> str)
 #endif
 
 
-strong_inline void String::Memory::pop_parent() {
+strong_inline void String::ReadMemory::pop_parent() {
   i::String* child = current_;
   if (!(parent_ & kCurrentIsSecondTag)) {
     // Moving up on the left hand side
@@ -5357,7 +5357,7 @@ strong_inline void String::Memory::pop_parent() {
 }
 
 
-strong_inline void String::Memory::push_parent(bool second) {
+strong_inline void String::ReadMemory::push_parent(bool second) {
   if (second && depth_ == 0) {
     // Optimization: no need to ever go back.
     return;
@@ -5378,7 +5378,7 @@ strong_inline void String::Memory::push_parent(bool second) {
 }
 
 
-void String::Memory::rewind() {
+void String::ReadMemory::rewind() {
   // Iteratate to the root and restore all `first` fields.
   while (depth_ > 0) {
     pop_parent();
@@ -5386,7 +5386,7 @@ void String::Memory::rewind() {
 }
 
 
-inline void String::Memory::down() {
+inline void String::ReadMemory::down() {
   // Iterate downward until a non-cons string is reached.
   i::String* child = current_->first();
   while (i::StringShape(child).IsCons()) {
@@ -5399,7 +5399,7 @@ inline void String::Memory::down() {
 }
 
 
-void String::Memory::next() {
+void String::ReadMemory::next() {
   // Iterate upward until we reach a branch whose right hand side we didn't
   // visit yet.
   while (did_visit_second_) {
@@ -5424,7 +5424,7 @@ void String::Memory::next() {
 }
 
 
-strong_inline void String::Memory::set_flat(i::String* string) {
+strong_inline void String::ReadMemory::set_flat(i::String* string) {
   // Unfortunately String::GetFlatContent is not really inline-friendly.
   i::StringShape shape(string);
   if (shape.representation_tag() == i::kSlicedStringTag) {
@@ -5475,7 +5475,7 @@ strong_inline void String::Memory::set_flat(i::String* string) {
 
 
 // Force inline would be nice here too.
-strong_inline void String::Memory::set_end() {
+strong_inline void String::ReadMemory::set_end() {
   ptr_ = NULL;
   length_ = 0;
   storage_type_ = kNone;
