@@ -1340,14 +1340,14 @@ class String : public Primitive {
   class V8EXPORT ReadMemory {
     static const int kCurrentIsSecondTag = 1;
     static const int kParentStackSize = 1024;
-    
+
    public:
     static enum StorageType {
       kNone = 0,
       kAscii = 1,
       kTwoByte = 2
     };
-    explicit ReadMemory(Handle<v8::String> obj);
+    explicit ReadMemory(v8::Handle<v8::String> obj);
     ~ReadMemory() {
       if (ptr_ != NULL) {
         rewind();
@@ -1362,7 +1362,6 @@ class String : public Primitive {
       }
       return ptr_ != NULL;
     }
-
 
    private:
     void next();

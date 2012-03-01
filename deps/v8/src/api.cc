@@ -5309,7 +5309,7 @@ String::ReadMemory::ReadMemory(v8::Handle<v8::String> str)
   i::Isolate* isolate = Utils::OpenHandle(*str)->GetIsolate();
   ENTER_V8(isolate);
   if (IsDeadCheck(isolate, "v8::String::ReadMemory::Memory()")) return;
-  
+
   i::String* istr = *Utils::OpenHandle(*str);
 
   if (!i::StringShape(istr).IsCons()) {

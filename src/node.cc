@@ -2056,7 +2056,7 @@ Handle<Value> TestUtf8New(const Arguments& args) {
   HandleScope scope;
   Utf8Writer writer(args[0]->ToString());
   ssize_t size1 = writer.utf8_length();
-  char* buffer = new char[size1]; 
+  char* buffer = new char[size1];
   ssize_t size2 = writer.Write(buffer, -1);
   assert(size1 == size2);
   delete[] buffer;
@@ -2069,7 +2069,7 @@ Handle<Value> TestUtf8Old(const Arguments& args) {
   HandleScope scope;
   Handle<String> s = args[0]->ToString();
   ssize_t size1 = s->Utf8Length();
-  char* buffer = new char[size1]; 
+  char* buffer = new char[size1];
   s->WriteUtf8(buffer, -1, NULL, String::NO_NULL_TERMINATION |
                                  (hint ? String::HINT_MANY_WRITES_EXPECTED : 0));
   delete[] buffer;
