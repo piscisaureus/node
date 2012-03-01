@@ -6124,7 +6124,7 @@ int String::RecursivelySerializeToUtf8(char* buffer, int start, int end) {
       } else if (end <= boundary) {
         // Only need LHS.
         return first->RecursivelySerializeToUtf8(
-            buffer, start - boundary, end - boundary);
+            buffer, start, boundary);
       } else {
         int utf8_bytes = first->RecursivelySerializeToUtf8(
             buffer, start, boundary);
