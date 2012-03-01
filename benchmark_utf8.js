@@ -5,7 +5,7 @@ var test_utf8_old_nohint = process.test_utf8_old_nohint;
 
 function benchmark_all() {
   var size = 8;
-  var iterations = 10000000;
+  var iterations = 2500000;
   while (true) {
     var log = Math.floor(log10(iterations)),
         factor = Math.pow(10, log),
