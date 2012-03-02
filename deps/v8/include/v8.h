@@ -114,6 +114,8 @@ class Arguments;
 class Object;
 class String;
 class ConsString;
+class SeqAsciiString;
+class SeqTwoByteString;
 class Heap;
 class HeapObject;
 class Isolate;
@@ -1384,6 +1386,34 @@ class String : public Primitive {
     // Disallow copying and assigning.
     ReadMemory(const ReadMemory&);
     void operator=(const ReadMemory&);
+  };
+
+  class V8EXPORT WriteMemory {
+   public:
+    WriteMemory(int length);
+    ~WriteMemory() {}
+    v8::Local<v8::String> Finalize();
+    uint16_t* operator*() { return ptr_; }
+    int length() { return length_; }
+
+   private:
+    uint16_t* ptr_;
+    int length_;
+    v8::internal::SeqTwoByteString* string_;
+  };
+
+  class V8EXPORT WriteAsciiMemory {
+   public:
+    WriteAsciiMemory(int length);
+    ~WriteAsciiMemory() {}
+    v8::Local<v8::String> Finalize();
+    uint16_t* operator*() { return ptr_; }
+    int length() { return length_; }
+
+   private:
+    uint16_t* ptr_;
+    int length_;
+    v8::internal::SeqAsciiString* string_;
   };
 
  private:
