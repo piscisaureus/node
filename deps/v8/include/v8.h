@@ -1343,7 +1343,7 @@ class String : public Primitive {
     static const int kParentStackSize = 1024;
 
    public:
-    static enum StorageType {
+    enum StorageType {
       kNone = 0,
       kAscii = 1,
       kTwoByte = 2
@@ -1413,13 +1413,13 @@ class String : public Primitive {
   class V8EXPORT WriteMemory
       : public WriteMemoryImpl<uint16_t> {
    public:
-    WriteMemory(int length): WriteMemoryImpl(length) {}
+    WriteMemory(int length): WriteMemoryImpl<uint16_t>(length) {}
   };
 
   class V8EXPORT WriteAsciiMemory
       : public WriteMemoryImpl<char> {
    public:
-    WriteAsciiMemory(int length): WriteMemoryImpl(length) {}
+    WriteAsciiMemory(int length): WriteMemoryImpl<char>(length) {}
   };
 
  private:

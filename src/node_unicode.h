@@ -25,7 +25,7 @@ class Utf8Writer {
   ~Utf8Writer() {}
 
   ssize_t utf8_length();
-  ssize_t Utf8Writer::Write(char* dest, ssize_t size);
+  ssize_t Write(char* dest, ssize_t size);
   
  private:
   ssize_t utf8_length_;

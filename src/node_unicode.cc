@@ -46,7 +46,7 @@ static inline ssize_t string_to_utf8(Handle<String> value, char* dest, ssize_t d
 
   for(String::ReadMemory it(value); *it; it.Next()) {
     switch (it.storage_type()) {
-      case it.kAscii: {
+      case String::ReadMemory::kAscii: {
         // If the previous iteration stopped halfway inside a surrogate
         // pair, emit replacement character and reset.
         if (lead_surrogate) {
@@ -72,9 +72,9 @@ static inline ssize_t string_to_utf8(Handle<String> value, char* dest, ssize_t d
           } else {
             const char* pos = reinterpret_cast<const char*>(*it);
             const char* end = pos + tocopy;
-            for ( ; pos <= end - sizeof intptr_t; pos += sizeof intptr_t) {
+            for ( ; pos <= end - sizeof(intptr_t); pos += sizeof(intptr_t)) {
               *reinterpret_cast<intptr_t*>(dest_pos) = *reinterpret_cast<const intptr_t*>(pos);
-              dest_pos += sizeof intptr_t;
+              dest_pos += sizeof(intptr_t);
             }
             for ( ; pos < end; pos++) {
               *(dest_pos++) = *pos;
