@@ -5482,6 +5482,58 @@ strong_inline void String::ReadMemory::set_end() {
 }
 
 
+template <class C>
+String::WriteMemoryImpl<C>::WriteMemoryImpl(int length) {
+  i::Isolate* isolate = i::Isolate::Current();
+  EnsureInitializedForIsolate(isolate, "v8::String::New()");
+  ENTER_V8(isolate);
+
+  if (length < 0) {
+    length_ = 0;
+    ptr_ = NULL;
+    string_ = Local<String>();
+    return;
+  }
+
+  allocate_and_set_fields(isolate, length);
+}
+
+
+template <class C>
+Local<String> String::WriteMemoryImpl<C>::Finalize() {
+  ptr_ = NULL;
+  length_ = 0;
+  return string_;
+}
+
+
+template <>
+inline void
+String::WriteMemoryImpl<char>::allocate_and_set_fields(i::Isolate* isolate,
+                                                       int length) {
+  i::Handle<i::SeqAsciiString> s = 
+      isolate->factory()->NewRawAsciiString(length);
+  string_ = Utils::ToLocal(i::Handle<i::String>(s));
+  ptr_ = s->GetChars();
+  length_ = length;
+}
+
+
+template <>
+inline void
+String::WriteMemoryImpl<uint16_t>::allocate_and_set_fields(i::Isolate* isolate,
+                                                           int length) {
+  i::Handle<i::SeqTwoByteString> s = 
+      isolate->factory()->NewRawTwoByteString(length);
+  string_ = Utils::ToLocal(i::Handle<i::String>(s));
+  ptr_ = s->GetChars();
+  length_ = length;
+}
+
+template class String::WriteMemoryImpl<char>;
+template class String::WriteMemoryImpl<uint16_t>;
+
+
 Local<Value> Exception::RangeError(v8::Handle<v8::String> raw_message) {
   i::Isolate* isolate = i::Isolate::Current();
   LOG_API(isolate, "RangeError");
