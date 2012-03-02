@@ -1368,11 +1368,11 @@ class String : public Primitive {
    private:
     void next();
     void rewind();
-    inline void down();
-    inline void set_flat(v8::internal::String* flat);
-    inline void set_end();
-    inline void push_parent(bool second);
-    inline void pop_parent();
+    void down();
+    void set_flat(v8::internal::String* flat);
+    void set_end();
+    void push_parent(bool second);
+    void pop_parent();
 
     const void* ptr_;
     int length_;
