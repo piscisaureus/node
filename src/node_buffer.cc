@@ -28,6 +28,7 @@
 #include <assert.h>
 #include <stdlib.h> // malloc, free
 #include <string.h> // memcpy
+#include <node_unicode.h>
 
 #ifdef __POSIX__
 # include <arpa/inet.h> // htons, htonl
@@ -96,7 +97,8 @@ static size_t ByteLength (Handle<String> string, enum encoding enc) {
   HandleScope scope;
 
   if (enc == UTF8) {
-    return string->Utf8Length();
+    node::Utf8Writer it(string);
+    return it.utf8_length();
   } else if (enc == BASE64) {
     String::Utf8Value v(string);
     return base64_decoded_size(*v, v.length());
@@ -485,16 +487,17 @@ Handle<Value> Buffer::Utf8Write(const Arguments &args) {
 
   char* p = buffer->data_ + offset;
 
-  int char_written;
+  int chars_written, written;
 
-  int written = s->WriteUtf8(p,
-                             max_length,
-                             &char_written,
-                             (String::HINT_MANY_WRITES_EXPECTED |
-                              String::NO_NULL_TERMINATION));
+  {
+    Utf8Writer writer(s);
+    written = writer.Write(p, max_length);
+  }
 
+  // Todo: chars_written is not correct
+  chars_written = -1;
   constructor_template->GetFunction()->Set(chars_written_sym,
-                                           Integer::New(char_written));
+                                           Integer::New(chars_written));
 
   return scope.Close(Integer::New(written));
 }
