@@ -159,7 +159,7 @@ TCPWrap::TCPWrap(Handle<Object> object)
 
 
 TCPWrap::~TCPWrap() {
-  assert(object_.IsEmpty());
+  assert(object().IsEmpty());
 }
 
 
@@ -422,7 +422,7 @@ Handle<Value> TCPWrap::Connect(const Arguments& args) {
   // just do some type munging.
   ConnectWrap* req_wrap = new ConnectWrap();
 
-  int r = uv_tcp_connect(&req_wrap->req(), &wrap->handle_, address,
+  int r = uv_tcp_connect(req_wrap->req(), &wrap->handle_, address,
       AfterConnect);
 
   req_wrap->Dispatched();
@@ -449,7 +449,7 @@ Handle<Value> TCPWrap::Connect6(const Arguments& args) {
 
   ConnectWrap* req_wrap = new ConnectWrap();
 
-  int r = uv_tcp_connect6(&req_wrap->req(), &wrap->handle_, address,
+  int r = uv_tcp_connect6(req_wrap->req(), &wrap->handle_, address,
       AfterConnect);
 
   req_wrap->Dispatched();

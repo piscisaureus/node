@@ -300,11 +300,11 @@ Handle<Value> UDPWrap::DoSend(const Arguments& args, int family) {
 
   switch (family) {
   case AF_INET:
-    r = uv_udp_send(&req_wrap->req(), &wrap->handle_, &buf, 1,
+    r = uv_udp_send(req_wrap->req(), &wrap->handle_, &buf, 1,
                     uv_ip4_addr(*address, port), OnSend);
     break;
   case AF_INET6:
-    r = uv_udp_send6(&req_wrap->req(), &wrap->handle_, &buf, 1,
+    r = uv_udp_send6(req_wrap->req(), &wrap->handle_, &buf, 1,
                      uv_ip6_addr(*address, port), OnSend);
     break;
   default:

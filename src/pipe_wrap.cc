@@ -268,7 +268,7 @@ Handle<Value> PipeWrap::Connect(const Arguments& args) {
 
   ConnectWrap* req_wrap = new ConnectWrap();
 
-  uv_pipe_connect(&req_wrap->req(),
+  uv_pipe_connect(req_wrap->req(),
                   &wrap->handle_,
                   *name,
                   AfterConnect);

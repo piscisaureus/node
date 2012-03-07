@@ -711,7 +711,7 @@ static Handle<Value> GetAddrInfo(const Arguments& args) {
   hints.ai_socktype = SOCK_STREAM;
 
   int r = uv_getaddrinfo(uv_default_loop(),
-                         &req_wrap->req(),
+                         req_wrap->req(),
                          AfterGetAddrInfo,
                          *hostname,
                          NULL,

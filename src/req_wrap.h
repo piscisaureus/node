@@ -45,8 +45,8 @@ class ReqWrap {
     req_.data = this;
   }
 
-  v8::Handle<v8::Object> object() { return object_ };
-  T req() { return req_ };
+  v8::Handle<v8::Object> object() { return object_; }
+  T* req() { return &req_; };
 
  private:
   v8::Persistent<v8::Object> object_;

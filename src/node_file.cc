@@ -70,7 +70,7 @@ static void After(uv_fs_t *req) {
   HandleScope scope;
 
   FSReqWrap* req_wrap = (FSReqWrap*) req->data;
-  assert(&req_wrap->req() == req);
+  assert(req_wrap->req() == req);
   Local<Value> callback_v = req_wrap->object()->Get(oncomplete_sym);
   assert(callback_v->IsFunction());
   Local<Function> callback = Local<Function>::Cast(callback_v);
@@ -191,7 +191,7 @@ static void After(uv_fs_t *req) {
     FatalException(try_catch);
   }
 
-  uv_fs_req_cleanup(&req_wrap->req());
+  uv_fs_req_cleanup(req_wrap->req());
   delete req_wrap;
 }
 
@@ -209,12 +209,12 @@ struct fs_req_wrap {
 
 #define ASYNC_CALL(func, callback, ...)                           \
   FSReqWrap* req_wrap = new FSReqWrap();                          \
-  int r = uv_fs_##func(uv_default_loop(), &req_wrap->req(),        \
+  int r = uv_fs_##func(uv_default_loop(), req_wrap->req(),        \
       __VA_ARGS__, After);                                        \
-  req_wrap->object()->Set(oncomplete_sym, callback);               \
+  req_wrap->object()->Set(oncomplete_sym, callback);              \
   req_wrap->Dispatched();                                         \
   if (r < 0) {                                                    \
-    uv_fs_t* req = &req_wrap->req();                               \
+    uv_fs_t* req = req_wrap->req();                               \
     req->result = r;                                              \
     req->path = NULL;                                             \
     req->errorno = uv_last_error(uv_default_loop()).code;         \

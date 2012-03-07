@@ -314,7 +314,7 @@ Handle<Value> StreamWrap::Write(const Arguments& args) {
   int r;
 
   if (!ipc_pipe) {
-    r = uv_write(&req_wrap->req(), wrap->stream_, &buf, 1, StreamWrap::AfterWrite);
+    r = uv_write(req_wrap->req(), wrap->stream_, &buf, 1, StreamWrap::AfterWrite);
   } else {
     uv_stream_t* send_stream = NULL;
 
@@ -326,7 +326,7 @@ Handle<Value> StreamWrap::Write(const Arguments& args) {
       send_stream = send_stream_wrap->GetStream();
     }
 
-    r = uv_write2(&req_wrap->req(),
+    r = uv_write2(req_wrap->req(),
                   wrap->stream_,
                   &buf,
                   1,
@@ -384,7 +384,7 @@ Handle<Value> StreamWrap::Shutdown(const Arguments& args) {
 
   ShutdownWrap* req_wrap = new ShutdownWrap();
 
-  int r = uv_shutdown(&req_wrap->req(), wrap->stream_, AfterShutdown);
+  int r = uv_shutdown(req_wrap->req(), wrap->stream_, AfterShutdown);
 
   req_wrap->Dispatched();
 
