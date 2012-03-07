@@ -70,8 +70,8 @@ static void After(uv_fs_t *req) {
   HandleScope scope;
 
   FSReqWrap* req_wrap = (FSReqWrap*) req->data;
-  assert(&req_wrap->req_ == req);
-  Local<Value> callback_v = req_wrap->object_->Get(oncomplete_sym);
+  assert(&req_wrap->req() == req);
+  Local<Value> callback_v = req_wrap->object()->Get(oncomplete_sym);
   assert(callback_v->IsFunction());
   Local<Function> callback = Local<Function>::Cast(callback_v);
 
@@ -185,13 +185,13 @@ static void After(uv_fs_t *req) {
 
   TryCatch try_catch;
 
-  callback->Call(req_wrap->object_, argc, argv);
+  callback->Call(req_wrap->object(), argc, argv);
 
   if (try_catch.HasCaught()) {
     FatalException(try_catch);
   }
 
-  uv_fs_req_cleanup(&req_wrap->req_);
+  uv_fs_req_cleanup(&req_wrap->req());
   delete req_wrap;
 }
 
@@ -209,18 +209,18 @@ struct fs_req_wrap {
 
 #define ASYNC_CALL(func, callback, ...)                           \
   FSReqWrap* req_wrap = new FSReqWrap();                          \
-  int r = uv_fs_##func(uv_default_loop(), &req_wrap->req_,        \
+  int r = uv_fs_##func(uv_default_loop(), &req_wrap->req(),        \
       __VA_ARGS__, After);                                        \
-  req_wrap->object_->Set(oncomplete_sym, callback);               \
+  req_wrap->object()->Set(oncomplete_sym, callback);               \
   req_wrap->Dispatched();                                         \
   if (r < 0) {                                                    \
-    uv_fs_t* req = &req_wrap->req_;                               \
+    uv_fs_t* req = &req_wrap->req();                               \
     req->result = r;                                              \
     req->path = NULL;                                             \
     req->errorno = uv_last_error(uv_default_loop()).code;         \
     After(req);                                                   \
   }                                                               \
-  return scope.Close(req_wrap->object_);
+  return scope.Close(req_wrap->object());
 
 #define SYNC_CALL(func, path, ...)                                \
   fs_req_wrap req_wrap;                                           \

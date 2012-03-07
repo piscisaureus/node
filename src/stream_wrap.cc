@@ -110,7 +110,7 @@ void StreamWrap::SetHandle(uv_handle_t* h) {
 
 void StreamWrap::UpdateWriteQueueSize() {
   HandleScope scope;
-  object_->Set(write_queue_size_sym, Integer::New(stream_->write_queue_size));
+  object()->Set(write_queue_size_sym, Integer::New(stream_->write_queue_size));
 }
 
 
@@ -177,7 +177,7 @@ uv_buf_t StreamWrap::OnAlloc(uv_handle_t* handle, size_t suggested_size) {
 
   if (slab_v.IsEmpty()) {
     // No slab currently. Create a new one.
-    slab = NewSlab(global, wrap->object_);
+    slab = NewSlab(global, wrap->object());
   } else {
     // Use existing slab.
     Local<Object> slab_obj = slab_v->ToObject();
@@ -187,9 +187,9 @@ uv_buf_t StreamWrap::OnAlloc(uv_handle_t* handle, size_t suggested_size) {
 
     // If less than 64kb is remaining on the slab allocate a new one.
     if (SLAB_SIZE - slab_used < 64 * 1024) {
-      slab = NewSlab(global, wrap->object_);
+      slab = NewSlab(global, wrap->object());
     } else {
-      wrap->object_->SetHiddenValue(slab_sym, slab_obj);
+      wrap->object()->SetHiddenValue(slab_sym, slab_obj);
     }
   }
 
@@ -214,11 +214,11 @@ void StreamWrap::OnReadCommon(uv_stream_t* handle, ssize_t nread,
 
   // We should not be getting this callback if someone as already called
   // uv_close() on the handle.
-  assert(wrap->object_.IsEmpty() == false);
+  assert(wrap->object().IsEmpty() == false);
 
   // Remove the reference to the slab to avoid memory leaks;
-  Local<Value> slab_v = wrap->object_->GetHiddenValue(slab_sym);
-  wrap->object_->SetHiddenValue(slab_sym, v8::Null());
+  Local<Value> slab_v = wrap->object()->GetHiddenValue(slab_sym);
+  wrap->object()->SetHiddenValue(slab_sym, v8::Null());
 
   if (nread < 0)  {
     // EOF or Error
@@ -227,7 +227,7 @@ void StreamWrap::OnReadCommon(uv_stream_t* handle, ssize_t nread,
     }
 
     SetErrno(uv_last_error(uv_default_loop()));
-    MakeCallback(wrap->object_, "onread", 0, NULL);
+    MakeCallback(wrap->object(), "onread", 0, NULL);
     return;
   }
 
@@ -265,7 +265,7 @@ void StreamWrap::OnReadCommon(uv_stream_t* handle, ssize_t nread,
       assert(pending == UV_UNKNOWN_HANDLE);
     }
 
-    MakeCallback(wrap->object_, "onread", argc, argv);
+    MakeCallback(wrap->object(), "onread", argc, argv);
   }
 }
 
@@ -305,7 +305,7 @@ Handle<Value> StreamWrap::Write(const Arguments& args) {
 
   WriteWrap* req_wrap = new WriteWrap();
 
-  req_wrap->object_->SetHiddenValue(buffer_sym, buffer_obj);
+  req_wrap->object()->SetHiddenValue(buffer_sym, buffer_obj);
 
   uv_buf_t buf;
   buf.base = Buffer::Data(buffer_obj) + offset;
@@ -314,7 +314,7 @@ Handle<Value> StreamWrap::Write(const Arguments& args) {
   int r;
 
   if (!ipc_pipe) {
-    r = uv_write(&req_wrap->req_, wrap->stream_, &buf, 1, StreamWrap::AfterWrite);
+    r = uv_write(&req_wrap->req(), wrap->stream_, &buf, 1, StreamWrap::AfterWrite);
   } else {
     uv_stream_t* send_stream = NULL;
 
@@ -326,7 +326,7 @@ Handle<Value> StreamWrap::Write(const Arguments& args) {
       send_stream = send_stream_wrap->GetStream();
     }
 
-    r = uv_write2(&req_wrap->req_,
+    r = uv_write2(&req_wrap->req(),
                   wrap->stream_,
                   &buf,
                   1,
@@ -343,7 +343,7 @@ Handle<Value> StreamWrap::Write(const Arguments& args) {
     delete req_wrap;
     return scope.Close(v8::Null());
   } else {
-    return scope.Close(req_wrap->object_);
+    return scope.Close(req_wrap->object());
   }
 }
 
@@ -355,8 +355,8 @@ void StreamWrap::AfterWrite(uv_write_t* req, int status) {
   HandleScope scope;
 
   // The wrap and request objects should still be there.
-  assert(req_wrap->object_.IsEmpty() == false);
-  assert(wrap->object_.IsEmpty() == false);
+  assert(req_wrap->object().IsEmpty() == false);
+  assert(wrap->object().IsEmpty() == false);
 
   if (status) {
     SetErrno(uv_last_error(uv_default_loop()));
@@ -366,12 +366,12 @@ void StreamWrap::AfterWrite(uv_write_t* req, int status) {
 
   Local<Value> argv[4] = {
     Integer::New(status),
-    Local<Value>::New(wrap->object_),
-    Local<Value>::New(req_wrap->object_),
-    req_wrap->object_->GetHiddenValue(buffer_sym),
+    Local<Value>::New(wrap->object()),
+    Local<Value>::New(req_wrap->object()),
+    req_wrap->object()->GetHiddenValue(buffer_sym),
   };
 
-  MakeCallback(req_wrap->object_, "oncomplete", 4, argv);
+  MakeCallback(req_wrap->object(), "oncomplete", 4, argv);
 
   delete req_wrap;
 }
@@ -384,7 +384,7 @@ Handle<Value> StreamWrap::Shutdown(const Arguments& args) {
 
   ShutdownWrap* req_wrap = new ShutdownWrap();
 
-  int r = uv_shutdown(&req_wrap->req_, wrap->stream_, AfterShutdown);
+  int r = uv_shutdown(&req_wrap->req(), wrap->stream_, AfterShutdown);
 
   req_wrap->Dispatched();
 
@@ -393,7 +393,7 @@ Handle<Value> StreamWrap::Shutdown(const Arguments& args) {
     delete req_wrap;
     return scope.Close(v8::Null());
   } else {
-    return scope.Close(req_wrap->object_);
+    return scope.Close(req_wrap->object());
   }
 }
 
@@ -403,8 +403,8 @@ void StreamWrap::AfterShutdown(uv_shutdown_t* req, int status) {
   StreamWrap* wrap = (StreamWrap*) req->handle->data;
 
   // The wrap and request objects should still be there.
-  assert(req_wrap->object_.IsEmpty() == false);
-  assert(wrap->object_.IsEmpty() == false);
+  assert(req_wrap->object().IsEmpty() == false);
+  assert(wrap->object().IsEmpty() == false);
 
   HandleScope scope;
 
@@ -414,11 +414,11 @@ void StreamWrap::AfterShutdown(uv_shutdown_t* req, int status) {
 
   Local<Value> argv[3] = {
     Integer::New(status),
-    Local<Value>::New(wrap->object_),
-    Local<Value>::New(req_wrap->object_)
+    Local<Value>::New(wrap->object()),
+    Local<Value>::New(req_wrap->object())
   };
 
-  MakeCallback(req_wrap->object_, "oncomplete", 3, argv);
+  MakeCallback(req_wrap->object(), "oncomplete", 3, argv);
 
   delete req_wrap;
 }

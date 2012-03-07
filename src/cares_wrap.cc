@@ -679,7 +679,7 @@ void AfterGetAddrInfo(uv_getaddrinfo_t* req, int status, struct addrinfo* res) {
   uv_freeaddrinfo(res);
 
   // Make the callback into JavaScript
-  MakeCallback(req_wrap->object_, "oncomplete", 1, argv);
+  MakeCallback(req_wrap->object(), "oncomplete", 1, argv);
 
   delete req_wrap;
 }
@@ -711,7 +711,7 @@ static Handle<Value> GetAddrInfo(const Arguments& args) {
   hints.ai_socktype = SOCK_STREAM;
 
   int r = uv_getaddrinfo(uv_default_loop(),
-                         &req_wrap->req_,
+                         &req_wrap->req(),
                          AfterGetAddrInfo,
                          *hostname,
                          NULL,
@@ -723,7 +723,7 @@ static Handle<Value> GetAddrInfo(const Arguments& args) {
     delete req_wrap;
     return scope.Close(v8::Null());
   } else {
-    return scope.Close(req_wrap->object_);
+    return scope.Close(req_wrap->object());
   }
 }
 

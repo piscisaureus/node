@@ -188,7 +188,7 @@ void PipeWrap::OnConnection(uv_stream_t* handle, int status) {
 
   // We should not be getting this callback if someone as already called
   // uv_close() on the handle.
-  assert(wrap->object_.IsEmpty() == false);
+  assert(wrap->object().IsEmpty() == false);
 
   if (status != 0) {
     // TODO Handle server error (set errno and call onconnection with NULL)
@@ -208,7 +208,7 @@ void PipeWrap::OnConnection(uv_stream_t* handle, int status) {
 
   // Successful accept. Call the onconnection callback in JavaScript land.
   Local<Value> argv[1] = { client_obj };
-  MakeCallback(wrap->object_, "onconnection", 1, argv);
+  MakeCallback(wrap->object(), "onconnection", 1, argv);
 }
 
 // TODO Maybe share this with TCPWrap?
@@ -219,8 +219,8 @@ void PipeWrap::AfterConnect(uv_connect_t* req, int status) {
   HandleScope scope;
 
   // The wrap and request objects should still be there.
-  assert(req_wrap->object_.IsEmpty() == false);
-  assert(wrap->object_.IsEmpty() == false);
+  assert(req_wrap->object().IsEmpty() == false);
+  assert(wrap->object().IsEmpty() == false);
 
   bool readable, writable;
 
@@ -234,13 +234,13 @@ void PipeWrap::AfterConnect(uv_connect_t* req, int status) {
 
   Local<Value> argv[5] = {
     Integer::New(status),
-    Local<Value>::New(wrap->object_),
-    Local<Value>::New(req_wrap->object_),
+    Local<Value>::New(wrap->object()),
+    Local<Value>::New(req_wrap->object()),
     Local<Value>::New(Boolean::New(readable)),
     Local<Value>::New(Boolean::New(writable))
   };
 
-  MakeCallback(req_wrap->object_, "oncomplete", 5, argv);
+  MakeCallback(req_wrap->object(), "oncomplete", 5, argv);
 
   delete req_wrap;
 }
@@ -268,14 +268,14 @@ Handle<Value> PipeWrap::Connect(const Arguments& args) {
 
   ConnectWrap* req_wrap = new ConnectWrap();
 
-  uv_pipe_connect(&req_wrap->req_,
+  uv_pipe_connect(&req_wrap->req(),
                   &wrap->handle_,
                   *name,
                   AfterConnect);
 
   req_wrap->Dispatched();
 
-  return scope.Close(req_wrap->object_);
+  return scope.Close(req_wrap->object());
 }
 
 

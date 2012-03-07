@@ -183,7 +183,7 @@ class ProcessWrap : public HandleWrap {
     else {
       wrap->SetHandle((uv_handle_t*)&wrap->process_);
       assert(wrap->process_.data == wrap);
-      wrap->object_->Set(String::New("pid"), Integer::New(wrap->process_.pid));
+      wrap->object()->Set(String::New("pid"), Integer::New(wrap->process_.pid));
     }
 
     if (options.args) {
@@ -228,7 +228,7 @@ class ProcessWrap : public HandleWrap {
       String::New(signo_string(term_signal))
     };
 
-    MakeCallback(wrap->object_, "onexit", 2, argv);
+    MakeCallback(wrap->object(), "onexit", 2, argv);
   }
 
   uv_process_t process_;

@@ -101,7 +101,7 @@ Handle<Value> HandleWrap::Close(const Arguments& args) {
 
   // guard against uninitialized handle or double close
   if (wrap->handle__ == NULL) return v8::Null();
-  assert(!wrap->object_.IsEmpty());
+  assert(!wrap->object().IsEmpty());
   uv_close(wrap->handle__, OnClose);
   wrap->handle__ = NULL;
 
@@ -143,14 +143,14 @@ void HandleWrap::OnClose(uv_handle_t* handle) {
   HandleWrap* wrap = static_cast<HandleWrap*>(handle->data);
 
   // The wrap object should still be there.
-  assert(wrap->object_.IsEmpty() == false);
+  assert(wrap->object().IsEmpty() == false);
 
   // But the handle pointer should be gone.
   assert(wrap->handle__ == NULL);
 
-  wrap->object_->SetPointerInInternalField(0, NULL);
-  wrap->object_.Dispose();
-  wrap->object_.Clear();
+  wrap->object()->SetPointerInInternalField(0, NULL);
+  wrap->object().Dispose();
+  wrap->object().Clear();
 
   delete wrap;
 }

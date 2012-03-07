@@ -131,7 +131,7 @@ void FSEventWrap::OnEvent(uv_fs_event_t* handle, const char* filename,
 
   FSEventWrap* wrap = reinterpret_cast<FSEventWrap*>(handle->data);
 
-  assert(wrap->object_.IsEmpty() == false);
+  assert(wrap->object().IsEmpty() == false);
 
   // We're in a bind here. libuv can set both UV_RENAME and UV_CHANGE but
   // the Node API only lets us pass a single event to JS land.
@@ -165,7 +165,7 @@ void FSEventWrap::OnEvent(uv_fs_event_t* handle, const char* filename,
     filename ? (Local<Value>)String::New(filename) : Local<Value>::New(v8::Null())
   };
 
-  MakeCallback(wrap->object_, "onchange", 3, argv);
+  MakeCallback(wrap->object(), "onchange", 3, argv);
 }
 
 

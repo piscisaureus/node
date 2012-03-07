@@ -353,7 +353,7 @@ void TCPWrap::OnConnection(uv_stream_t* handle, int status) {
 
   // We should not be getting this callback if someone as already called
   // uv_close() on the handle.
-  assert(wrap->object_.IsEmpty() == false);
+  assert(wrap->object().IsEmpty() == false);
 
   Handle<Value> argv[1];
 
@@ -375,7 +375,7 @@ void TCPWrap::OnConnection(uv_stream_t* handle, int status) {
     argv[0] = v8::Null();
   }
 
-  MakeCallback(wrap->object_, "onconnection", 1, argv);
+  MakeCallback(wrap->object(), "onconnection", 1, argv);
 }
 
 
@@ -386,8 +386,8 @@ void TCPWrap::AfterConnect(uv_connect_t* req, int status) {
   HandleScope scope;
 
   // The wrap and request objects should still be there.
-  assert(req_wrap->object_.IsEmpty() == false);
-  assert(wrap->object_.IsEmpty() == false);
+  assert(req_wrap->object().IsEmpty() == false);
+  assert(wrap->object().IsEmpty() == false);
 
   if (status) {
     SetErrno(uv_last_error(uv_default_loop()));
@@ -395,13 +395,13 @@ void TCPWrap::AfterConnect(uv_connect_t* req, int status) {
 
   Local<Value> argv[5] = {
     Integer::New(status),
-    Local<Value>::New(wrap->object_),
-    Local<Value>::New(req_wrap->object_),
+    Local<Value>::New(wrap->object()),
+    Local<Value>::New(req_wrap->object()),
     Local<Value>::New(v8::True()),
     Local<Value>::New(v8::True())
   };
 
-  MakeCallback(req_wrap->object_, "oncomplete", 5, argv);
+  MakeCallback(req_wrap->object(), "oncomplete", 5, argv);
 
   delete req_wrap;
 }
@@ -422,7 +422,7 @@ Handle<Value> TCPWrap::Connect(const Arguments& args) {
   // just do some type munging.
   ConnectWrap* req_wrap = new ConnectWrap();
 
-  int r = uv_tcp_connect(&req_wrap->req_, &wrap->handle_, address,
+  int r = uv_tcp_connect(&req_wrap->req(), &wrap->handle_, address,
       AfterConnect);
 
   req_wrap->Dispatched();
@@ -432,7 +432,7 @@ Handle<Value> TCPWrap::Connect(const Arguments& args) {
     delete req_wrap;
     return scope.Close(v8::Null());
   } else {
-    return scope.Close(req_wrap->object_);
+    return scope.Close(req_wrap->object());
   }
 }
 
@@ -449,7 +449,7 @@ Handle<Value> TCPWrap::Connect6(const Arguments& args) {
 
   ConnectWrap* req_wrap = new ConnectWrap();
 
-  int r = uv_tcp_connect6(&req_wrap->req_, &wrap->handle_, address,
+  int r = uv_tcp_connect6(&req_wrap->req(), &wrap->handle_, address,
       AfterConnect);
 
   req_wrap->Dispatched();
@@ -459,7 +459,7 @@ Handle<Value> TCPWrap::Connect6(const Arguments& args) {
     delete req_wrap;
     return scope.Close(v8::Null());
   } else {
-    return scope.Close(req_wrap->object_);
+    return scope.Close(req_wrap->object());
   }
 }
 

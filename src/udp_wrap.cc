@@ -290,7 +290,7 @@ Handle<Value> UDPWrap::DoSend(const Arguments& args, int family) {
   assert(length <= Buffer::Length(buffer_obj) - offset);
 
   SendWrap* req_wrap = new SendWrap();
-  req_wrap->object_->SetHiddenValue(buffer_sym, buffer_obj);
+  req_wrap->object()->SetHiddenValue(buffer_sym, buffer_obj);
 
   uv_buf_t buf = uv_buf_init(Buffer::Data(buffer_obj) + offset,
                              length);
@@ -300,11 +300,11 @@ Handle<Value> UDPWrap::DoSend(const Arguments& args, int family) {
 
   switch (family) {
   case AF_INET:
-    r = uv_udp_send(&req_wrap->req_, &wrap->handle_, &buf, 1,
+    r = uv_udp_send(&req_wrap->req(), &wrap->handle_, &buf, 1,
                     uv_ip4_addr(*address, port), OnSend);
     break;
   case AF_INET6:
-    r = uv_udp_send6(&req_wrap->req_, &wrap->handle_, &buf, 1,
+    r = uv_udp_send6(&req_wrap->req(), &wrap->handle_, &buf, 1,
                      uv_ip6_addr(*address, port), OnSend);
     break;
   default:
@@ -320,7 +320,7 @@ Handle<Value> UDPWrap::DoSend(const Arguments& args, int family) {
     return Null();
   }
   else {
-    return scope.Close(req_wrap->object_);
+    return scope.Close(req_wrap->object());
   }
 }
 
@@ -394,8 +394,8 @@ void UDPWrap::OnSend(uv_udp_send_t* req, int status) {
   SendWrap* req_wrap = reinterpret_cast<SendWrap*>(req->data);
   UDPWrap* wrap = reinterpret_cast<UDPWrap*>(req->handle->data);
 
-  assert(req_wrap->object_.IsEmpty() == false);
-  assert(wrap->object_.IsEmpty() == false);
+  assert(req_wrap->object().IsEmpty() == false);
+  assert(wrap->object().IsEmpty() == false);
 
   if (status) {
     SetErrno(uv_last_error(uv_default_loop()));
@@ -403,12 +403,12 @@ void UDPWrap::OnSend(uv_udp_send_t* req, int status) {
 
   Local<Value> argv[4] = {
     Integer::New(status),
-    Local<Value>::New(wrap->object_),
-    Local<Value>::New(req_wrap->object_),
-    req_wrap->object_->GetHiddenValue(buffer_sym),
+    Local<Value>::New(wrap->object()),
+    Local<Value>::New(req_wrap->object()),
+    req_wrap->object()->GetHiddenValue(buffer_sym),
   };
 
-  MakeCallback(req_wrap->object_, "oncomplete", 4, argv);
+  MakeCallback(req_wrap->object(), "oncomplete", 4, argv);
   delete req_wrap;
 }
 
@@ -425,7 +425,7 @@ uv_buf_t UDPWrap::OnAlloc(uv_handle_t* handle, size_t suggested_size) {
 
   if (slab_v.IsEmpty()) {
     // No slab currently. Create a new one.
-    slab = NewSlab(global, wrap->object_);
+    slab = NewSlab(global, wrap->object());
   } else {
     // Use existing slab.
     Local<Object> slab_obj = slab_v->ToObject();
@@ -435,9 +435,9 @@ uv_buf_t UDPWrap::OnAlloc(uv_handle_t* handle, size_t suggested_size) {
 
     // If less than 64kb is remaining on the slab allocate a new one.
     if (SLAB_SIZE - slab_used < 64 * 1024) {
-      slab = NewSlab(global, wrap->object_);
+      slab = NewSlab(global, wrap->object());
     } else {
-      wrap->object_->SetHiddenValue(udp_slab_sym, slab_obj);
+      wrap->object()->SetHiddenValue(udp_slab_sym, slab_obj);
     }
   }
 
@@ -469,7 +469,7 @@ void UDPWrap::OnRecv(uv_udp_t* handle,
   UDPWrap* wrap = reinterpret_cast<UDPWrap*>(handle->data);
 
   Handle<Value> argv[4] = {
-    wrap->object_,
+    wrap->object(),
     Integer::New(nread),
     Null(),
     Null()
@@ -485,7 +485,7 @@ void UDPWrap::OnRecv(uv_udp_t* handle,
     argv[3] = rinfo;
   }
 
-  MakeCallback(wrap->object_, "onmessage", ARRAY_SIZE(argv), argv);
+  MakeCallback(wrap->object(), "onmessage", ARRAY_SIZE(argv), argv);
 }
 
 inline char* UDPWrap::NewSlab(Handle<Object> global,
