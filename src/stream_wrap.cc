@@ -21,6 +21,7 @@
 
 #include <node.h>
 #include <node_buffer.h>
+#include <node_unicode.h>
 #include <handle_wrap.h>
 #include <stream_wrap.h>
 #include <tcp_wrap.h>
@@ -63,7 +64,15 @@ using v8::Integer;
 
 
 typedef class ReqWrap<uv_shutdown_t> ShutdownWrap;
-typedef class ReqWrap<uv_write_t> WriteWrap;
+
+class WriteWrap: public ReqWrap<uv_write_t> {
+ public:
+  WriteWrap(char* buffer = NULL): buffer_(buffer) {}
+  char* buffer() { return buffer_;  }
+
+ private:
+  char* buffer_;
+};
 
 
 static size_t slab_used;
@@ -289,27 +298,52 @@ Handle<Value> StreamWrap::Write(const Arguments& args) {
   bool ipc_pipe = wrap->stream_->type == UV_NAMED_PIPE &&
                   ((uv_pipe_t*)wrap->stream_)->ipc;
 
-  // The first argument is a buffer.
-  assert(Buffer::HasInstance(args[0]));
-  Local<Object> buffer_obj = args[0]->ToObject();
-  size_t offset = 0;
-  size_t length = Buffer::Length(buffer_obj);
-
-  if (args.Length() > 1) {
-    offset = args[1]->IntegerValue();
-  }
-
-  if (args.Length() > 2) {
-    length = args[2]->IntegerValue();
-  }
-
-  WriteWrap* req_wrap = new WriteWrap();
-
-  req_wrap->object()->SetHiddenValue(buffer_sym, buffer_obj);
-
+  WriteWrap* req_wrap;
   uv_buf_t buf;
-  buf.base = Buffer::Data(buffer_obj) + offset;
-  buf.len = length;
+
+  assert(args.Length() > 0);
+
+  if (Buffer::HasInstance(args[0])) {
+    // The first argument is a buffer.
+    Local<Object> buffer_obj = args[0]->ToObject();
+    size_t offset = 0;
+    size_t length = Buffer::Length(buffer_obj);
+
+    if (args.Length() > 1) {
+      offset = args[1]->IntegerValue();
+    }
+
+    if (args.Length() > 2) {
+      length = args[2]->IntegerValue();
+    }
+
+    req_wrap = new WriteWrap();
+    req_wrap->object()->SetHiddenValue(buffer_sym, buffer_obj);
+
+    buf.base = Buffer::Data(buffer_obj) + offset;
+    buf.len = length;
+  } else {
+    // The first object is a string
+    Local<String> string = args[0]->ToString();
+    if (string->Length() > 0) {
+      Utf8Writer encoder(string);
+
+      // A single UCS2 character can never take up more that 3 utf8 bytes.
+      assert(encoder.utf8_length() <= 3 * string->Length()); // Slow assert!
+      char* buffer = new char[3 * string->Length()];
+
+      buf.len = encoder.Write(buffer, -1);
+      buf.base = buffer;
+
+      // Store the pointer to the buffer inside the WriteWrap
+      req_wrap = new WriteWrap(buffer);
+    } else {
+      buf.len = 0;
+      buf.base = NULL;
+      req_wrap = new WriteWrap();
+    }
+  }
+
 
   int r;
 
@@ -358,6 +392,9 @@ void StreamWrap::AfterWrite(uv_write_t* req, int status) {
   assert(req_wrap->object().IsEmpty() == false);
   assert(wrap->object().IsEmpty() == false);
 
+  // Delete the allocated buffer if we've written a string
+  delete[] req_wrap->buffer();
+
   if (status) {
     SetErrno(uv_last_error(uv_default_loop()));
   }
@@ -367,11 +404,10 @@ void StreamWrap::AfterWrite(uv_write_t* req, int status) {
   Local<Value> argv[4] = {
     Integer::New(status),
     Local<Value>::New(wrap->object()),
-    Local<Value>::New(req_wrap->object()),
-    req_wrap->object()->GetHiddenValue(buffer_sym),
+    Local<Value>::New(req_wrap->object())
   };
 
-  MakeCallback(req_wrap->object(), "oncomplete", 4, argv);
+  MakeCallback(req_wrap->object(), "oncomplete", 3, argv);
 
   delete req_wrap;
 }
