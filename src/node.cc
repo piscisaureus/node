@@ -2052,12 +2052,13 @@ static Handle<Value> DebugPause(const Arguments& args);
 static Handle<Value> DebugEnd(const Arguments& args);
 
 
+template <bool checked>
 Handle<Value> TestUtf8New(const Arguments& args) {
   HandleScope scope;
   Utf8Writer writer(args[0]->ToString());
   ssize_t size1 = writer.utf8_length();
   char* buffer = new char[size1];
-  ssize_t size2 = writer.Write(buffer, -1);
+  ssize_t size2 = writer.Write(buffer, checked ? size1 : -1);
   assert(size1 == size2);
   delete[] buffer;
   return Undefined();
@@ -2202,7 +2203,8 @@ Handle<Object> SetupProcessObject(int argc, char *argv[]) {
 
   NODE_SET_METHOD(process, "umask", Umask);
 
-  NODE_SET_METHOD(process, "test_utf8_new", TestUtf8New);
+  NODE_SET_METHOD(process, "test_utf8_new_unchecked", TestUtf8New<false>);
+  NODE_SET_METHOD(process, "test_utf8_new_checked", TestUtf8New<true>);
   NODE_SET_METHOD(process, "test_utf8_old_hint", TestUtf8Old<true>);
   NODE_SET_METHOD(process, "test_utf8_old_nohint", TestUtf8Old<false>);
   NODE_SET_METHOD(process, "test", Test);

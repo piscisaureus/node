@@ -1,5 +1,6 @@
 
-var test_utf8_new = process.test_utf8_new;
+var test_utf8_new_checked = process.test_utf8_new_checked;
+var test_utf8_new_unchecked = process.test_utf8_new_unchecked;
 var test_utf8_old_hint = process.test_utf8_old_hint;
 var test_utf8_old_nohint = process.test_utf8_old_nohint;
 
@@ -41,10 +42,17 @@ function benchmark(size, shape, unicode, iterations) {
   process.stdout.write(", content: " + ["ascii", "single nonascii", "mixed"][unicode]);
   process.stdout.write(", iterations: " + iterations);
   
-  process.stdout.write("\nnew: ");
+  process.stdout.write("\nnew_checked: ");
   start = (new Date()).getTime();
   for (i = iterations - 1; i >= 0; i--)
-    test_utf8_new(string);
+    test_utf8_new_checked(string);
+  end = (new Date()).getTime();
+  process.stdout.write((end - start) / 1000 + " s");
+
+  process.stdout.write("\tnew_unchecked: ");
+  start = (new Date()).getTime();
+  for (i = iterations - 1; i >= 0; i--)
+    test_utf8_new_unchecked(string);
   end = (new Date()).getTime();
   process.stdout.write((end - start) / 1000 + " s");
   
