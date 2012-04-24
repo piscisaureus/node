@@ -813,6 +813,7 @@ def build(bld):
     src/node_http_parser.cc
     src/node_net.cc
     src/node_io_watcher.cc
+    src/node_idle_watcher.cc
     src/node_constants.cc
     src/node_cares.cc
     src/node_events.cc
