@@ -24,8 +24,9 @@
 
 namespace node {
 
-static v8::Persistent<v8::String> process_symbol;
-static v8::Persistent<v8::String> domain_symbol;
+// defined in node.cc
+extern v8::Persistent<v8::String> process_symbol;
+extern v8::Persistent<v8::String> domain_symbol;
 
 template <typename T>
 class ReqWrap {

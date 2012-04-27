@@ -20,6 +20,7 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "node.h"
+#include "handle_wrap.h" // HandleWrap::GetActiveHandles()
 
 #include "uv.h"
 
@@ -93,6 +94,9 @@ extern char **environ;
 
 namespace node {
 
+// declared in req_wrap.h
+Persistent<String> process_symbol;
+Persistent<String> domain_symbol;
 
 static Persistent<Object> process;
 
@@ -109,7 +113,6 @@ static Persistent<String> listeners_symbol;
 static Persistent<String> uncaught_exception_symbol;
 static Persistent<String> emit_symbol;
 
-static Persistent<String> domain_symbol;
 static Persistent<String> enter_symbol;
 static Persistent<String> exit_symbol;
 static Persistent<String> disposed_symbol;
