@@ -55,7 +55,7 @@ server.onconnection = function(client) {
 
       assert.equal(0, client.writeQueueSize);
 
-      var req = client.write(buffer, offset, length);
+      var req = client.writeBuffer(buffer, offset, length);
       client.pendingWrites.push(req);
 
       console.log('client.writeQueueSize: ' + client.writeQueueSize);
