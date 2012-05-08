@@ -1,18 +1,14 @@
-path = require("path");
-exec = require("child_process").exec;
-http = require("http");
+var path = require("path"),
+    exec = require("child_process").exec,
+    http = require("http");
 
-port = parseInt(process.env.PORT || 8000);
+var port = parseInt(process.env.PORT || 8000);
 
 console.log('pid ' + process.pid);
 
-fixed = ""
-for (var i = 0; i < 20*1024; i++) {
-  fixed += "C";
-}
-
-stored = {};
-storedBuffer = {};
+var fixed = new Array(20 * 1024 + 1).join('C'),
+    storedBytes = {},
+    storedBuffer = {};
 
 var useDomains = process.env.NODE_USE_DOMAINS;
 
@@ -43,21 +39,19 @@ var server = http.createServer(function (req, res) {
   var status = 200;
 
   if (command == "bytes") {
-    var n = parseInt(arg, 10)
+    var n = ~~arg;
     if (n <= 0)
-      throw "bytes called with n <= 0"
-    if (stored[n] === undefined) {
-      console.log("create stored[n]");
-      stored[n] = "";
-      for (var i = 0; i < n; i++) {
-        stored[n] += "C"
-      }
+      throw new Error("bytes called with n <= 0")
+    if (storedBytes[n] === undefined) {
+      console.log("create storedBytes[n]");
+      storedBytes[n] = new Array(n + 1).join('C');
     }
-    body = stored[n];
+    body = storedBytes[n];
 
   } else if (command == "buffer") {
-    var n = parseInt(arg, 10)
-    if (n <= 0) throw new Error("bytes called with n <= 0");
+    var n = ~~arg;
+    if (n <= 0)
+      throw new Error("buffer called with n <= 0");
     if (storedBuffer[n] === undefined) {
       console.log("create storedBuffer[n]");
       storedBuffer[n] = new Buffer(n);
