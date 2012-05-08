@@ -279,7 +279,11 @@ Handle<Value> StreamWrap::WriteBuffer(const Arguments& args) {
   buf.base = Buffer::Data(buffer_obj) + offset;
   buf.len = length;
 
-  int r = uv_write(&req_wrap->req_, wrap->stream_, &buf, 1, StreamWrap::AfterWrite);
+  int r = uv_write(&req_wrap->req_,
+                   wrap->stream_,
+                   &buf,
+                   1,
+                   StreamWrap::AfterWrite);
 
   req_wrap->Dispatched();
   req_wrap->object_->Set(bytes_sym, Number::New((uint32_t) length));
@@ -366,15 +370,18 @@ Handle<Value> StreamWrap::WriteStringImpl(const Arguments& args) {
   char* data = reinterpret_cast<char*>(req_wrap) + data_offset;
   switch (encoding) {
     case kAscii:
-      data_size = string->WriteAscii(data, 0, -1, String::NO_NULL_TERMINATION | String::HINT_MANY_WRITES_EXPECTED);
+      data_size = string->WriteAscii(data, 0, -1,
+          String::NO_NULL_TERMINATION | String::HINT_MANY_WRITES_EXPECTED);
       break;
 
     case kUtf8:
-      data_size = string->WriteUtf8(data, -1, NULL, String::NO_NULL_TERMINATION | String::HINT_MANY_WRITES_EXPECTED);
+      data_size = string->WriteUtf8(data, -1, NULL,
+          String::NO_NULL_TERMINATION | String::HINT_MANY_WRITES_EXPECTED);
       break;
 
     case kUcs2: {
-      int chars_copied = string->Write((uint16_t*) data, 0, -1, String::NO_NULL_TERMINATION | String::HINT_MANY_WRITES_EXPECTED);
+      int chars_copied = string->Write((uint16_t*) data, 0, -1,
+          String::NO_NULL_TERMINATION | String::HINT_MANY_WRITES_EXPECTED);
       data_size = chars_copied * sizeof(uint16_t);
       break;
     }
@@ -394,7 +401,11 @@ Handle<Value> StreamWrap::WriteStringImpl(const Arguments& args) {
                   ((uv_pipe_t*)wrap->stream_)->ipc;
 
   if (!ipc_pipe) {
-    r = uv_write(&req_wrap->req_, wrap->stream_, &buf, 1, StreamWrap::AfterWrite);
+    r = uv_write(&req_wrap->req_,
+                 wrap->stream_,
+                 &buf,
+                 1,
+                 StreamWrap::AfterWrite);
 
   } else {
     uv_stream_t* send_stream = NULL;
