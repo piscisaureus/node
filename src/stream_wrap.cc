@@ -244,6 +244,14 @@ void StreamWrap::OnRead2(uv_pipe_t* handle, ssize_t nread, uv_buf_t buf,
 }
 
 
+static inline const size_t max_uv_buf_len() {
+  /* The assumption here is that uv_buf_t.len is unsigned. */
+  uv_buf_t buf;
+  buf.len = ~0;
+  return static_cast<size_t>(buf.len);
+}
+
+
 Handle<Value> StreamWrap::WriteBuffer(const Arguments& args) {
   HandleScope scope;
 
@@ -254,6 +262,13 @@ Handle<Value> StreamWrap::WriteBuffer(const Arguments& args) {
   Local<Object> buffer_obj = args[0]->ToObject();
   size_t offset = 0;
   size_t length = Buffer::Length(buffer_obj);
+
+  if (length > max_uv_buf_len()) {
+    uv_err_t err;
+    err.code = UV_ENOBUFS;
+    SetErrno(err);
+    return scope.Close(v8::Null());
+  }
 
   char* storage = new char[sizeof(WriteWrap)];
   WriteWrap* req_wrap = new (storage) WriteWrap();
@@ -338,6 +353,13 @@ Handle<Value> StreamWrap::WriteStringImpl(const Arguments& args) {
       assert(0);
   }
 
+  if (storage_size - data_offset > max_uv_buf_len()) {
+    uv_err_t err;
+    err.code = UV_ENOBUFS;
+    SetErrno(err);
+    return scope.Close(v8::Null());
+  }
+
   char* storage = new char[storage_size];
   WriteWrap* req_wrap = new (storage) WriteWrap();
 
@@ -366,10 +388,7 @@ Handle<Value> StreamWrap::WriteStringImpl(const Arguments& args) {
 
   uv_buf_t buf;
   buf.base = data;
-  buf.len = (int) data_size;
-  // V8 strings should never be longer than 2^31 characters so this should
-  // be no problem.
-  assert((size_t) buf.len == data_size);
+  buf.len = data_size;
 
   bool ipc_pipe = wrap->stream_->type == UV_NAMED_PIPE &&
                   ((uv_pipe_t*)wrap->stream_)->ipc;
