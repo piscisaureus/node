@@ -8,7 +8,8 @@ console.log('pid ' + process.pid);
 
 var fixed = new Array(20 * 1024 + 1).join('C'),
     storedBytes = {},
-    storedBuffer = {};
+    storedBuffer = {},
+    storedUnicode = {};
 
 var useDomains = process.env.NODE_USE_DOMAINS;
 
@@ -60,6 +61,16 @@ var server = http.createServer(function (req, res) {
       }
     }
     body = storedBuffer[n];
+
+  } else if (command == "unicode") {
+    var n = ~~arg;
+    if (n <= 0)
+      throw new Error("unicode called with n <= 0");
+    if (storedUnicode[n] === undefined) {
+      console.log("create storedUnicode[n]");
+      storedUnicode[n] = new Array(n + 1).join('\u2639');
+    }
+    body = storedUnicode[n];
 
   } else if (command == "quit") {
     res.connection.server.close();
