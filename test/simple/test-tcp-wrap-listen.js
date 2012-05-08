@@ -62,14 +62,13 @@ server.onconnection = function(client) {
       // 11 bytes should flush
       assert.equal(0, client.writeQueueSize);
 
-      req.oncomplete = function(status, client_, req_, buffer_) {
+      req.oncomplete = function(status, client_, req_) {
         assert.equal(req, client.pendingWrites.shift());
 
         // Check parameters.
         assert.equal(0, status);
         assert.equal(client, client_);
         assert.equal(req, req_);
-        assert.equal(buffer, buffer_);
 
         console.log('client.writeQueueSize: ' + client.writeQueueSize);
         assert.equal(0, client.writeQueueSize);
