@@ -319,8 +319,8 @@ Handle<Value> StreamWrap::WriteStringImpl(const Arguments& args) {
 
   Local<String> string = args[0]->ToString();
 
-  const size_t data_offset = reinterpret_cast<size_t>(
-      reinterpret_cast<WriteWrap*>(0) + 1);
+  const size_t alignment_bits = sizeof(void*) - 1;
+  const size_t data_offset = (sizeof(WriteWrap) + alignment_bits) & ~alignment_bits;
   size_t data_size, storage_size;
 
   // Compute the size of the storage that the string will be flattened into.
