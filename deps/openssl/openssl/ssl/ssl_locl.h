@@ -471,6 +471,7 @@
 typedef struct cert_pkey_st
 	{
 	X509 *x509;
+	STACK_OF(X509) *cert_chain;
 	EVP_PKEY *privatekey;
 	/* Digest to use when signing */
 	const EVP_MD *digest;

@@ -329,6 +329,7 @@ SSL *SSL_new(SSL_CTX *ctx)
 	OPENSSL_assert(s->sid_ctx_length <= sizeof s->sid_ctx);
 	memcpy(&s->sid_ctx,&ctx->sid_ctx,sizeof(s->sid_ctx));
 	s->verify_callback=ctx->default_verify_callback;
+	s->session_creation_enabled=1;
 	s->generate_session_id=ctx->generate_session_id;
 
 	s->param = X509_VERIFY_PARAM_new();
@@ -1330,6 +1331,32 @@ int SSL_set_cipher_list(SSL *s,const char *str)
 		SSLerr(SSL_F_SSL_SET_CIPHER_LIST, SSL_R_NO_CIPHER_MATCH);
 		return 0;
 		}
+	return 1;
+	}
+
+/** specify the ciphers to be used by the SSL */
+int SSL_set_cipher_lists(SSL *s,STACK_OF(SSL_CIPHER) *sk)
+	{
+	STACK_OF(SSL_CIPHER) *tmp_cipher_list;
+
+	if (sk == NULL)
+		return 0;
+
+        /* Based on end of ssl_create_cipher_list */
+	tmp_cipher_list = sk_SSL_CIPHER_dup(sk);
+	if (tmp_cipher_list == NULL)
+		{
+		return 0;
+		}
+	if (s->cipher_list != NULL)
+		sk_SSL_CIPHER_free(s->cipher_list);
+	s->cipher_list = sk;
+	if (s->cipher_list_by_id != NULL)
+		sk_SSL_CIPHER_free(s->cipher_list_by_id);
+	s->cipher_list_by_id = tmp_cipher_list;
+	(void)sk_SSL_CIPHER_set_cmp_func(s->cipher_list_by_id,ssl_cipher_ptr_id_cmp);
+
+	sk_SSL_CIPHER_sort(s->cipher_list_by_id);
 	return 1;
 	}
 
@@ -2602,20 +2629,47 @@ SSL_METHOD *ssl_bad_method(int ver)
 	return(NULL);
 	}
 
-const char *SSL_get_version(const SSL *s)
+static const char *ssl_get_version(int version)
 	{
-	if (s->version == TLS1_2_VERSION)
+	if (version == TLS1_2_VERSION)
 		return("TLSv1.2");
-	else if (s->version == TLS1_1_VERSION)
+	else if (version == TLS1_1_VERSION)
 		return("TLSv1.1");
-	if (s->version == TLS1_VERSION)
+	else if (version == TLS1_VERSION)
 		return("TLSv1");
-	else if (s->version == SSL3_VERSION)
+	else if (version == SSL3_VERSION)
 		return("SSLv3");
-	else if (s->version == SSL2_VERSION)
+	else if (version == SSL2_VERSION)
 		return("SSLv2");
 	else
 		return("unknown");
+	}
+
+const char *SSL_get_version(const SSL *s)
+	{
+		return ssl_get_version(s->version);
+	}
+
+const char *SSL_SESSION_get_version(const SSL_SESSION *s)
+	{
+		return ssl_get_version(s->ssl_version);
+	}
+
+const char* SSL_authentication_method(const SSL* ssl)
+	{
+	if (ssl->cert != NULL && ssl->cert->rsa_tmp != NULL)
+		return SSL_TXT_RSA "_" SSL_TXT_EXPORT;
+	switch (ssl->version)
+		{
+	case SSL2_VERSION:
+		return SSL_TXT_RSA;
+	case SSL3_VERSION:
+	case TLS1_VERSION:
+	case DTLS1_VERSION:
+		return SSL_CIPHER_authentication_method(ssl->s3->tmp.new_cipher);
+	default:
+		return "UNKNOWN";
+		}
 	}
 
 SSL *SSL_dup(SSL *s)
