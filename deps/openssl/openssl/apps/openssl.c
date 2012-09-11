@@ -344,8 +344,10 @@ int main(int Argc, char *ARGV[])
 		if (ERR_GET_REASON(ERR_peek_last_error())
 		    == CONF_R_NO_SUCH_FILE)
 			{
+#if !defined(__ANDROID__)
 			BIO_printf(bio_err,
 				   "WARNING: can't open config file: %s\n",p);
+#endif
 			ERR_clear_error();
 			NCONF_free(config);
 			config = NULL;

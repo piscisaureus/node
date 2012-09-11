@@ -1746,6 +1746,7 @@ int MAIN(int argc, char **argv)
 			}
 		}
 
+#if !defined(__ANDROID__)
 	if (doit[D_IGE_128_AES])
 		{
 		for (j=0; j<SIZE_NUM; j++)
@@ -1805,6 +1806,7 @@ int MAIN(int argc, char **argv)
 		CRYPTO_gcm128_release(ctx);
 		}
 
+#endif
 #endif
 #ifndef OPENSSL_NO_CAMELLIA
 	if (doit[D_CBC_128_CML])
