@@ -668,6 +668,18 @@ unsigned char *ssl_add_clienthello_tlsext(SSL *s, unsigned char *p, unsigned cha
                 ret += el;
                 }
 
+#ifndef OPENSSL_NO_NEXTPROTONEG
+	if (s->ctx->next_proto_select_cb && !s->s3->tmp.finish_md_len)
+		{
+		/* The client advertises an emtpy extension to indicate its
+		 * support for Next Protocol Negotiation */
+		if (limit - ret - 4 < 0)
+			return NULL;
+		s2n(TLSEXT_TYPE_next_proto_neg,ret);
+		s2n(0,ret);
+		}
+#endif
+
 	if ((extdatalen = ret-p-2)== 0) 
 		return p;
 
