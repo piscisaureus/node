@@ -238,6 +238,9 @@
           'libraries': [ '-lpsapi.lib' ]
         }, { # POSIX
           'defines': [ '__POSIX__' ],
+          'ldflags': [
+            '-Wl,--dynamic-list=../deps/openssl/export/unix/openssl.sym'
+          ]
         }],
         [ 'OS=="mac"', {
           'libraries': [ '-framework Carbon' ],
