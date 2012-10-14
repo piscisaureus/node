@@ -517,6 +517,7 @@
         'openssl/crypto/rc2/rc2_skey.c',
         'openssl/crypto/rc2/rc2cfb64.c',
         'openssl/crypto/rc2/rc2ofb64.c',
+        'openssl/crypto/rc4/rc4_utl.c',
         'openssl/crypto/ripemd/rmd_dgst.c',
         'openssl/crypto/ripemd/rmd_one.c',
         'openssl/crypto/rsa/rsa_ameth.c',
@@ -669,7 +670,6 @@
             'openssl/crypto/mem_clr.c',
             'openssl/crypto/rc4/rc4_enc.c',
             'openssl/crypto/rc4/rc4_skey.c',
-            'openssl/crypto/rc4/rc4_utl.c',
           ]
         }, {
           # Enable asm
@@ -716,6 +716,7 @@
                 'asm/x64-elf-gas/camellia/cmll-x86_64.s',
                 'asm/x64-elf-gas/md5/md5-x86_64.s',
                 'asm/x64-elf-gas/rc4/rc4-x86_64.s',
+                'asm/x64-elf-gas/rc4/rc4-md5-x86_64.s',
                 'asm/x64-elf-gas/sha/sha1-x86_64.s',
                 'asm/x64-elf-gas/sha/sha512-x86_64.s',
                 'asm/x64-elf-gas/whrlpool/wp-x86_64.s',
@@ -756,6 +757,7 @@
                 'asm/x64-macosx-gas/camellia/cmll-x86_64.s',
                 'asm/x64-macosx-gas/md5/md5-x86_64.s',
                 'asm/x64-macosx-gas/rc4/rc4-x86_64.s',
+                'asm/x64-macosx-gas/rc4/rc4-md5-x86_64.s',
                 'asm/x64-macosx-gas/sha/sha1-x86_64.s',
                 'asm/x64-macosx-gas/sha/sha512-x86_64.s',
                 'asm/x64-macosx-gas/whrlpool/wp-x86_64.s',
@@ -814,6 +816,7 @@
                 'asm/x64-win32-masm/camellia/cmll-x86_64.asm',
                 'asm/x64-win32-masm/md5/md5-x86_64.asm',
                 'asm/x64-win32-masm/rc4/rc4-x86_64.asm',
+                'asm/x64-win32-masm/rc4/rc4-md5-x86_64.asm',
                 'asm/x64-win32-masm/sha/sha1-x86_64.asm',
                 'asm/x64-win32-masm/sha/sha512-x86_64.asm',
                 'asm/x64-win32-masm/whrlpool/wp-x86_64.asm',
@@ -870,9 +873,6 @@
         }],
         ['target_arch=="ia32"', {
           'variables': {'openssl_config_path': 'config/piii'},
-          'sources': [
-            'openssl/crypto/bn/bn_asm.c',
-          ]
         }],
         ['target_arch=="x64"', {
           'variables': {'openssl_config_path': 'config/k8'},
@@ -884,7 +884,6 @@
           'variables': {'openssl_config_path': 'config/android'},
           'sources': [
             'openssl/crypto/armcap.c',
-            'openssl/crypto/bn/bn_asm.c',
           ]
         }]
       ],
