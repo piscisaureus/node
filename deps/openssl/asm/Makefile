@@ -20,6 +20,7 @@ OUTPUTS	= \
 	x86-elf-gas/whrlpool/wp-mmx.s \
 	x86-elf-gas/x86cpuid.s \
 	x64-elf-gas/aes/aes-x86_64.s \
+	x64-elf-gas/bn/modexp512-x86_64.s \
 	x64-elf-gas/bn/x86_64-mont.s \
 	x64-elf-gas/camellia/cmll-x86_64.s \
 	x64-elf-gas/md5/md5-x86_64.s \
@@ -47,6 +48,7 @@ OUTPUTS	= \
 	x86-macosx-gas/whrlpool/wp-mmx.s \
 	x86-macosx-gas/x86cpuid.s \
 	x64-macosx-gas/aes/aes-x86_64.s \
+	x64-macosx-gas/bn/modexp512-x86_64.s \
 	x64-macosx-gas/bn/x86_64-mont.s \
 	x64-macosx-gas/camellia/cmll-x86_64.s \
 	x64-macosx-gas/md5/md5-x86_64.s \
@@ -74,6 +76,7 @@ OUTPUTS	= \
 	x86-win32-masm/whrlpool/wp-mmx.asm \
 	x86-win32-masm/x86cpuid.asm \
 	x64-win32-masm/aes/aes-x86_64.asm \
+	x64-win32-masm/bn/modexp512-x86_64.asm \
 	x64-win32-masm/bn/x86_64-mont.asm \
 	x64-win32-masm/camellia/cmll-x86_64.asm \
 	x64-win32-masm/md5/md5-x86_64.asm \
@@ -106,6 +109,7 @@ clean:
 	find . -iname '*.s' -exec rm "{}" \;
 
 x64-elf-gas/aes/aes-x86_64.s: ../openssl/crypto/aes/asm/aes-x86_64.pl
+x64-elf-gas/bn/modexp512-x86_64.s: ../openssl/crypto/bn/asm/modexp512-x86_64.pl
 x64-elf-gas/bn/x86_64-mont.s: ../openssl/crypto/bn/asm/x86_64-mont.pl
 x64-elf-gas/camellia/cmll-x86_64.s: ../openssl/crypto/camellia/asm/cmll-x86_64.pl
 x64-elf-gas/md5/md5-x86_64.s: ../openssl/crypto/md5/asm/md5-x86_64.pl
@@ -116,6 +120,7 @@ x64-elf-gas/sha/sha512-x86_64.s: ../openssl/crypto/sha/asm/sha512-x86_64.pl
 x64-elf-gas/whrlpool/wp-x86_64.s: ../openssl/crypto/whrlpool/asm/wp-x86_64.pl
 x64-elf-gas/x86_64cpuid.s: ../openssl/crypto/x86_64cpuid.pl
 x64-macosx-gas/aes/aes-x86_64.s: ../openssl/crypto/aes/asm/aes-x86_64.pl
+x64-macosx-gas/bn/modexp512-x86_64.s: ../openssl/crypto/bn/asm/modexp512-x86_64.pl
 x64-macosx-gas/bn/x86_64-mont.s: ../openssl/crypto/bn/asm/x86_64-mont.pl
 x64-macosx-gas/camellia/cmll-x86_64.s: ../openssl/crypto/camellia/asm/cmll-x86_64.pl
 x64-macosx-gas/md5/md5-x86_64.s: ../openssl/crypto/md5/asm/md5-x86_64.pl
@@ -126,6 +131,7 @@ x64-macosx-gas/sha/sha512-x86_64.s: ../openssl/crypto/sha/asm/sha512-x86_64.pl
 x64-macosx-gas/whrlpool/wp-x86_64.s: ../openssl/crypto/whrlpool/asm/wp-x86_64.pl
 x64-macosx-gas/x86_64cpuid.s: ../openssl/crypto/x86_64cpuid.pl
 x64-win32-masm/aes/aes-x86_64.asm: ../openssl/crypto/aes/asm/aes-x86_64.pl
+x64-win32-masm/bn/modexp512-x86_64.asm: ../openssl/crypto/bn/asm/modexp512-x86_64.pl
 x64-win32-masm/bn/x86_64-mont.asm: ../openssl/crypto/bn/asm/x86_64-mont.pl
 x64-win32-masm/camellia/cmll-x86_64.asm: ../openssl/crypto/camellia/asm/cmll-x86_64.pl
 x64-win32-masm/md5/md5-x86_64.asm: ../openssl/crypto/md5/asm/md5-x86_64.pl
