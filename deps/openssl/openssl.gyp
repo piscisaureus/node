@@ -887,11 +887,6 @@
           ]
         }]
       ],
-      'sources/': [
-        ['exclude', 'camellia/.*$'],
-        ['exclude', 'cms/.*$'],
-        ['exclude', 'mdc2/.*$'],
-      ],
       'include_dirs': [
         '.',
         'openssl',
