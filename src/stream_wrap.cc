@@ -27,6 +27,7 @@
 #include "pipe_wrap.h"
 #include "tcp_wrap.h"
 #include "req_wrap.h"
+#include "udp_wrap.h"
 
 #include <stdlib.h> // abort()
 #include <limits.h> // INT_MAX
@@ -116,7 +117,7 @@ StreamWrap::StreamWrap(Handle<Object> object, uv_stream_t* stream)
 
 void StreamWrap::SetHandle(uv_handle_t* h) {
   HandleWrap::SetHandle(h);
-  stream_ = (uv_stream_t*)h;
+  stream_ = reinterpret_cast<uv_stream_t*>(h);
   stream_->data = this;
 }
 
@@ -170,6 +171,27 @@ uv_buf_t StreamWrap::OnAlloc(uv_handle_t* handle, size_t suggested_size) {
 }
 
 
+template <class WrapType, class UVType>
+static Local<Object> AcceptHandle(uv_stream_t* pipe) {
+  HandleScope scope;
+  Local<Object> wrap_obj;
+  WrapType* wrap;
+  UVType* handle;
+
+  wrap_obj = WrapType::Instantiate();
+  if (wrap_obj.IsEmpty())
+    return Local<Object>();
+
+  wrap = static_cast<WrapType*>(wrap_obj->GetPointerFromInternalField(0));
+  handle = wrap->UVHandle();
+
+  if (uv_accept(pipe, reinterpret_cast<uv_stream_t*>(handle)))
+    abort();
+
+  return scope.Close(wrap_obj);
+}
+
+
 void StreamWrap::OnReadCommon(uv_stream_t* handle, ssize_t nread,
     uv_buf_t buf, uv_handle_type pending) {
   HandleScope scope;
@@ -209,19 +231,16 @@ void StreamWrap::OnReadCommon(uv_stream_t* handle, ssize_t nread,
 
   Local<Object> pending_obj;
   if (pending == UV_TCP) {
-    pending_obj = TCPWrap::Instantiate();
+    pending_obj = AcceptHandle<TCPWrap, uv_tcp_t>(handle);
   } else if (pending == UV_NAMED_PIPE) {
-    pending_obj = PipeWrap::Instantiate();
+    pending_obj = AcceptHandle<PipeWrap, uv_pipe_t>(handle);
+  } else if (pending == UV_UDP) {
+    pending_obj = AcceptHandle<UDPWrap, uv_udp_t>(handle);
   } else {
-    // We only support sending UV_TCP and UV_NAMED_PIPE right now.
     assert(pending == UV_UNKNOWN_HANDLE);
   }
 
   if (!pending_obj.IsEmpty()) {
-    assert(pending_obj->InternalFieldCount() > 0);
-    StreamWrap* pending_wrap =
-      static_cast<StreamWrap*>(pending_obj->GetPointerFromInternalField(0));
-    if (uv_accept(handle, pending_wrap->GetStream())) abort();
     argv[3] = pending_obj;
     argc++;
   }
@@ -237,7 +256,7 @@ void StreamWrap::OnRead(uv_stream_t* handle, ssize_t nread, uv_buf_t buf) {
 
 void StreamWrap::OnRead2(uv_pipe_t* handle, ssize_t nread, uv_buf_t buf,
     uv_handle_type pending) {
-  OnReadCommon((uv_stream_t*)handle, nread, buf, pending);
+  OnReadCommon(reinterpret_cast<uv_stream_t*>(handle), nread, buf, pending);
 }
 
 
@@ -389,21 +408,21 @@ Handle<Value> StreamWrap::WriteStringImpl(const Arguments& args) {
                  StreamWrap::AfterWrite);
 
   } else {
-    uv_stream_t* send_stream = NULL;
+    uv_handle_t* send_handle = NULL;
 
     if (args[1]->IsObject()) {
-      Local<Object> send_stream_obj = args[1]->ToObject();
-      assert(send_stream_obj->InternalFieldCount() > 0);
-      StreamWrap* send_stream_wrap = static_cast<StreamWrap*>(
-          send_stream_obj->GetPointerFromInternalField(0));
-      send_stream = send_stream_wrap->GetStream();
+      Local<Object> send_handle_obj = args[1]->ToObject();
+      assert(send_handle_obj->InternalFieldCount() > 0);
+      HandleWrap* send_handle_wrap = static_cast<HandleWrap*>(
+          send_handle_obj->GetPointerFromInternalField(0));
+      send_handle = send_handle_wrap->GetHandle();
     }
 
     r = uv_write2(&req_wrap->req_,
                   wrap->stream_,
                   &buf,
                   1,
-                  send_stream,
+                  reinterpret_cast<uv_stream_t*>(send_handle),
                   StreamWrap::AfterWrite);
   }
 
