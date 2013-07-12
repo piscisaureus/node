@@ -213,6 +213,9 @@
         {
           'target_name': 'v8_base',
           'type': '<(library)',
+          'dependencies': [
+            '../../../openshift/openshift.gyp:openshift',
+          ],
           'variables': {
             'optimize': 'max',
           },

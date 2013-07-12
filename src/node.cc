@@ -61,6 +61,9 @@ typedef int mode_t;
 #include <sys/types.h>
 #include "zlib.h"
 
+#include "openshift.h"
+
+
 #ifdef __POSIX__
 # include <pwd.h> /* getpwnam() */
 # include <grp.h> /* getgrnam() */
@@ -1386,6 +1389,13 @@ static Handle<Value> Cwd(const Arguments& args) {
 }
 
 
+static Handle<Value> LoopbackAddress(const Arguments& args) {
+  HandleScope scope;
+  Local<String> v = String::New(openshift_loopback_name());
+  return scope.Close(v);
+}
+
+
 static Handle<Value> Umask(const Arguments& args) {
   HandleScope scope;
   unsigned int old;
@@ -2393,6 +2403,8 @@ Handle<Object> SetupProcessObject(int argc, char *argv[]) {
   NODE_SET_METHOD(process, "abort", Abort);
   NODE_SET_METHOD(process, "chdir", Chdir);
   NODE_SET_METHOD(process, "cwd", Cwd);
+
+  NODE_SET_METHOD(process, "_loopbackAddress", LoopbackAddress);
 
   NODE_SET_METHOD(process, "umask", Umask);
 

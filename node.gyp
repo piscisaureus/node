@@ -67,6 +67,7 @@
       'type': 'executable',
 
       'dependencies': [
+        'deps/openshift/openshift.gyp:openshift',
         'node_js2c#host',
       ],
 

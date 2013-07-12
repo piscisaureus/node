@@ -52,9 +52,10 @@ else:
 GCC_EXTRA_CCFLAGS = []
 GCC_DTOA_EXTRA_CCFLAGS = []
 
+
 LIBRARY_FLAGS = {
   'all': {
-    'CPPPATH': [src_dir],
+    'CPPPATH': [src_dir, ARGUMENTS['openshift_dir']],
     'regexp:interpreted': {
       'CPPDEFINES': ['V8_INTERPRETED_REGEXP']
     },
@@ -365,6 +366,9 @@ V8_EXTRA_FLAGS = {
 
 MKSNAPSHOT_EXTRA_FLAGS = {
   'gcc': {
+    'all': {
+      'LINKFLAGS': [ARGUMENTS['openshift_obj']]
+    },
     'os:linux': {
       'LIBS': ['pthread'],
     },
@@ -1189,6 +1193,8 @@ def GetOptions():
   result.Add('cache', 'directory to use for scons build cache', '')
   result.Add('env', 'override environment settings (NAME0:value0,NAME1:value1,...)', '')
   result.Add('importenv', 'import environment settings (NAME0,NAME1,...)', '')
+  result.Add('openshift_dir', '');
+  result.Add('openshift_obj', '');
   AddOptions(PLATFORM_OPTIONS, result)
   AddOptions(SIMPLE_OPTIONS, result)
   return result
