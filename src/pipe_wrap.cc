@@ -48,6 +48,12 @@ static Persistent<Function> pipeConstructor;
 static Cached<String> onconnection_sym;
 static Cached<String> oncomplete_sym;
 
+template <v8::Isolate** isolate> class Cache {
+
+};
+
+Cache<&node_isolate> c;
+
 
 // TODO(bnoordhuis) share with TCPWrap?
 typedef class ReqWrap<uv_connect_t> ConnectWrap;
