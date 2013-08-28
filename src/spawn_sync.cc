@@ -110,14 +110,14 @@ class SyncStdioPipeHandler {
   inline void OnShutdownDone(int result);
   inline void OnClose();
 
+  inline void SetError(int error);
+
   static uv_buf_t AllocCallback(uv_handle_t* handle, size_t suggested_size);
   static void ReadCallback(uv_stream_t* stream, ssize_t nread, uv_buf_t buf);
   static void WriteCallback(uv_write_t* req, int result);
   static void ShutdownCallback(uv_shutdown_t* req, int result);
   static void CloseCallback(uv_handle_t* handle);
   
-  inline void SetError(int error);
-
   SpawnSyncHelper* process_handler_;
 
   bool readable_;
@@ -155,18 +155,18 @@ class SpawnSyncHelper {
   void CloseHandles();
   
   void OnExit(int64_t exit_code, int term_sig);
-  
   void OnTimeout(int status);
-  void IncrementBufferSizeAndCheckOverflow(ssize_t length);
-  void StopTimer();
+
   void Kill();
+  void StopTimer();
+  void IncrementBufferSizeAndCheckOverflow(ssize_t length);
   
   Local<Object> BuildResultsObject();
   Local<Array> BuildOutputObject();
 
-  static void ExitCallback(uv_process_t* handle, int64_t exit_code, int term_sig);
-  static void TimeoutCallback(uv_timer_t* handle, int status);
-  static void TimerCloseCallback(uv_handle_t* handle);
+  int GetError();
+  void SetError(int error);
+  void SetPipeError(int pipe_error);
   
   int ParseOptions(Local<Value> js_value);
   int ParseStdioOptions(Local<Value> js_value);
@@ -178,12 +178,12 @@ class SpawnSyncHelper {
 
   static bool IsSet(Local<Value> value);
   template <typename t> static bool CheckRange(Local<Value> js_value);
-  static int CopyJsStringArray(Local<Value> js_value, char*& target);
   static int CopyJsString(Local<Value> js_value, char*& target);
-
-  int GetError();
-  void SetError(int error);
-  void SetPipeError(int pipe_error);
+  static int CopyJsStringArray(Local<Value> js_value, char*& target);
+  
+  static void ExitCallback(uv_process_t* handle, int64_t exit_code, int term_sig);
+  static void TimeoutCallback(uv_timer_t* handle, int status);
+  static void TimerCloseCallback(uv_handle_t* handle);
    
  private:
   size_t max_buffer_;
@@ -442,6 +442,11 @@ void SyncStdioPipeHandler::OnClose() {
   lifecycle_ = kClosed;
 }
 
+void SyncStdioPipeHandler::SetError(int error) {
+  assert(error != 0);
+  process_handler_->SetPipeError(error);
+}
+
 uv_buf_t SyncStdioPipeHandler::AllocCallback(uv_handle_t* handle, size_t suggested_size) {
   SyncStdioPipeHandler* self = reinterpret_cast<SyncStdioPipeHandler*>(handle->data);
   return self->OnAlloc(suggested_size);
@@ -467,29 +472,21 @@ void SyncStdioPipeHandler::CloseCallback(uv_handle_t* handle) {
   self->OnClose();
 }
 
-void SyncStdioPipeHandler::SetError(int error) {
-  assert(error != 0);
-  process_handler_->SetPipeError(error);
+
+
+
+void SpawnSyncHelper::Initialize(Handle<Object> target) {
+  NODE_SET_METHOD(target, "spawnSync", Spawn);
 }
 
+void SpawnSyncHelper::Spawn(const FunctionCallbackInfo<Value>& args) {
+  HandleScope scope(node_isolate);
+  SpawnSyncHelper p;
+  Local<Value> result = p.DoSpawn(args[0]);
+  args.GetReturnValue().Set(result);
+}
 
-
-
-
-
-
-class SpawnSyncHelper {
-  enum sync_process_lifecycle {
-    kUninitialized = 0,
-    kInitialized,
-    kHandlesClosed
-  };
-
- public:
-  static void Initialize(Handle<Object> target);
-  static void Spawn(const FunctionCallbackInfo<Value>& args);
-
-  SpawnSyncHelper():
+SpawnSyncHelper():
       error_(0),
       pipe_error_(0),
       exit_code_(-1),
@@ -512,6 +509,37 @@ class SpawnSyncHelper {
       lifecycle_(kUninitialized)
    {
    }
+
+~SpawnSyncHelper() {
+  assert(lifecycle_ == kHandlesClosed);
+
+  if (pipe_handlers_ != NULL) {
+    for (size_t i = 0; i < stdio_count_; i++) {
+      if (pipe_handlers_[i] != NULL)
+        delete pipe_handlers_[i];
+    }
+  }
+
+  delete[] pipe_handlers_;
+  delete[] file_buffer_;
+  delete[] args_buffer_;
+  delete[] cwd_buffer_;
+  delete[] env_buffer_;
+  delete[] uv_stdio_containers_;
+}
+
+Local<Object> DoSpawn(Local<Value> options) {
+  assert(lifecycle_ == kUninitialized);
+
+  HandleScope scope;
+
+  TryInitializeAndSpawn(options);
+  CloseHandles();
+
+  Local<Object> result = BuildResultsObject();
+
+  return scope.Close(result);
+}
 
   void TryInitializeAndSpawn(Local<Value> options) {
     int r;
@@ -598,17 +626,64 @@ class SpawnSyncHelper {
     }
   }
 
-  Local<Object> DoSpawn(Local<Value> options) {
-    assert(lifecycle_ == kUninitialized);
+  
+  void OnExit(int64_t exit_code, int term_sig) {
+    if (exit_code < 0)
+      return SetError(static_cast<int>(exit_code));
 
-    HandleScope scope;
+    exit_code_ = exit_code;
+    term_sig_ = term_sig;
 
-    TryInitializeAndSpawn(options);
-    CloseHandles();
+    // Stop the timeout timer if it is running.
+    StopTimer();
+  }
 
-    Local<Object> result = BuildResultsObject();
+  
+  void OnTimeout(int status) {
+    assert(status == 0);
+    SetError(UV_ETIMEDOUT);
+    Kill();
+  }
 
-    return scope.Close(result);
+  
+  void Kill() {
+    int r;
+
+    // Only attempt to kill once.
+    if (uv_process_killed_)
+      return;
+    uv_process_killed_ = true;
+
+    // When the timer fires, kill the process we've spawned.
+    r = uv_process_kill(&uv_process, kill_signal_);
+
+    // If uv_kill failed with an error that isn't ESRCH, the user probably
+    // specified an invalid or unsupported signal. Signal this to the user as
+    // and error and kill the process with SIGKILL instead.
+    if (r < 0 && r != UV_ESRCH) {
+      SetError(r);
+
+      r = uv_process_kill(&uv_process, kill_signal_);
+      assert(r >= 0 || r == UV_ESRCH);
+    }
+
+    // Stop the timeout timer if it is running.
+    StopTimer();
+  }
+
+  void StopTimer() {
+    assert((timeout_ > 0) == uv_timer_initialized_);
+    if (uv_timer_initialized_) {
+      int r = uv_timer_stop(&uv_timer);
+      assert(r == 0);
+    }
+  }
+
+  
+  void IncrementBufferSizeAndCheckOverflow(ssize_t length) {
+    buffered_data_ += length;
+    if (max_buffer_ > 0 && buffered_data_ > max_buffer_)
+      Kill();
   }
 
   Local<Object> BuildResultsObject() {
@@ -662,287 +737,23 @@ class SpawnSyncHelper {
     return scope.Close(js_output);
   }
 
-  static void ExitCallback(uv_process_t* handle, int64_t exit_code, int term_sig) {
-    SpawnSyncHelper* self = reinterpret_cast<SpawnSyncHelper*>(handle->data);
-    self->OnExit(exit_code, term_sig);
+  void SetError(int error) {
+    if (error_ == 0)
+      error_ = error;
   }
 
-  void OnExit(int64_t exit_code, int term_sig) {
-    if (exit_code < 0)
-      return SetError(static_cast<int>(exit_code));
-
-    exit_code_ = exit_code;
-    term_sig_ = term_sig;
-
-    // Stop the timeout timer if it is running.
-    StopTimer();
+  void SetPipeError(int pipe_error) {
+    if (pipe_error_ == 0)
+      pipe_error_ = pipe_error;
   }
 
-  void StopTimer() {
-    assert((timeout_ > 0) == uv_timer_initialized_);
-    if (uv_timer_initialized_) {
-      int r = uv_timer_stop(&uv_timer);
-      assert(r == 0);
-    }
-  }
-
-  void Kill() {
-    int r;
-
-    // Only attempt to kill once.
-    if (uv_process_killed_)
-      return;
-    uv_process_killed_ = true;
-
-    // When the timer fires, kill the process we've spawned.
-    r = uv_process_kill(&uv_process, kill_signal_);
-
-    // If uv_kill failed with an error that isn't ESRCH, the user probably
-    // specified an invalid or unsupported signal. Signal this to the user as
-    // and error and kill the process with SIGKILL instead.
-    if (r < 0 && r != UV_ESRCH) {
-      SetError(r);
-
-      r = uv_process_kill(&uv_process, kill_signal_);
-      assert(r >= 0 || r == UV_ESRCH);
-    }
-
-    // Stop the timeout timer if it is running.
-    StopTimer();
-  }
-
-  void OnTimeout(int status) {
-    assert(status == 0);
-    SetError(UV_ETIMEDOUT);
-    Kill();
-  }
-
-  void IncrementBufferSizeAndCheckOverflow(ssize_t length) {
-    buffered_data_ += length;
-    if (max_buffer_ > 0 && buffered_data_ > max_buffer_)
-      Kill();
-  }
-
-  static void TimeoutCallback(uv_timer_t* handle, int status) {
-    SpawnSyncHelper* self = reinterpret_cast<SpawnSyncHelper*>(handle->data);
-    self->OnTimeout(status);
-  }
-
-  static void TimerCloseCallback(uv_handle_t* handle) {
-    // No-op.
-  }
-
-  static int CopyJsStringArray(Local<Value> js_value, char*& target) {
-    Local<Array> js_array;
-    uint32_t length;
-    size_t list_size, data_size, data_offset;
-    char** list;
-    char* buffer;
-
-    if (!js_value->IsArray())
-      return UV_EINVAL;
-
-    js_array = js_value.As<Array>()->Clone().As<Array>();
-    length = js_array->Length();
-
-    // Convert all array elements to string. Modify the js object itself if
-    // needed - it's okay since we cloned the original object.
-    for (uint32_t i = 0; i < length; i++) {
-      if (!js_array->Get(i)->IsString())
-        js_array->Set(i, js_array->Get(i)->ToString());
-    }
-
-    // Index has a pointer to every string element, plus one more for a final
-    // null pointer.
-    list_size = (length + 1) * sizeof *list;
-
-    // Compute the length of all strings. Include room for null terminator
-    // after every string. Align strings to cache lines.
-    data_size = 0;
-    for (uint32_t i = 0; i < length; i++) {
-      data_size += StringBytes::StorageSize(js_array->Get(i), UTF8) + 1;
-      data_size = ROUND_UP(data_size, sizeof(void*));
-    }
-
-    buffer = new char[list_size + data_size];
-
-    list = reinterpret_cast<char**>(buffer);
-    data_offset = list_size;
-
-    for (uint32_t i = 0; i < length; i++) {
-      list[i] = buffer + data_offset;
-      data_offset += StringBytes::Write(buffer + data_offset,
-                                        -1,
-                                        js_array->Get(i),
-                                        UTF8);
-      buffer[data_offset++] = '\0';
-      data_offset = ROUND_UP(data_offset, sizeof(void*));
-    }
-
-    list[length] = NULL;
-
-    target = buffer;
-    return 0;
-  }
-
-  static int CopyJsString(Local<Value> js_value, char*& target) {
-    Local<String> js_string;
-    size_t size, written;
-    char* buffer;
-
-    if (js_value->IsString())
-      js_string = js_value.As<String>();
+  int GetError() {
+    if (error_ != 0)
+      return error_;
     else
-      js_string = js_value->ToString();
-
-    // Include space for null terminator byte.
-    size = StringBytes::StorageSize(js_string, UTF8) + 1;
-
-    buffer = new char[size];
-
-    written = StringBytes::Write(buffer, -1, js_string, UTF8);
-    buffer[written] = '\0';
-
-    target = buffer;
-    return 0;
+      return pipe_error_;
   }
-
-
-  int ParseStdioOptions(Local<Value> js_value) {
-    HandleScope scope;
-    Local<Array> js_stdio_options;
-
-    if (!js_value->IsArray())
-      return UV_EINVAL;
-
-    js_stdio_options = js_value.As<Array>();
-
-    stdio_count_ = js_stdio_options->Length();
-
-    pipe_handlers_ = new SyncStdioPipeHandler*[stdio_count_]();
-    uv_stdio_containers_ = new uv_stdio_container_t[stdio_count_];
-
-    for (uint32_t i = 0; i < stdio_count_; i++) {
-      Local<Value> js_stdio_option = js_stdio_options->Get(i);
-
-      if (!js_stdio_option->IsObject())
-        return UV_EINVAL;
-
-      int r = ParseStdioOption(i, js_stdio_option.As<Object>());
-      if (r < 0)
-        return r;
-    }
-
-    uv_process_options_.stdio = uv_stdio_containers_;
-    uv_process_options_.stdio_count = stdio_count_;
-
-    return 0;
-  }
-
-  int ParseStdioOption(int child_fd, Local<Object> js_stdio_option) {
-    Local<String> type_sym = FIXED_ONE_BYTE_STRING(node_isolate, "type");
-    Local<String> ignore_sym = FIXED_ONE_BYTE_STRING(node_isolate, "ignore");
-    Local<String> pipe_sym = FIXED_ONE_BYTE_STRING(node_isolate, "pipe");
-    Local<String> inherit_sym = FIXED_ONE_BYTE_STRING(node_isolate, "inherit");
-    Local<String> readable_sym = FIXED_ONE_BYTE_STRING(node_isolate, "readable");
-    Local<String> writable_sym = FIXED_ONE_BYTE_STRING(node_isolate, "writable");
-    Local<String> input_sym = FIXED_ONE_BYTE_STRING(node_isolate, "input");
-    Local<String> fd_sym = FIXED_ONE_BYTE_STRING(node_isolate, "fd");
-
-    Local<Value> js_type = js_stdio_option->Get(type_sym);
-
-    if (js_type->StrictEquals(ignore_sym)) {
-      return AddStdioIgnore(child_fd);
-
-    } else if (js_type->StrictEquals(pipe_sym)) {
-      bool readable = js_stdio_option->Get(readable_sym)->BooleanValue();
-      bool writable = js_stdio_option->Get(writable_sym)->BooleanValue();
-
-      uv_buf_t buf = uv_buf_init(NULL, 0);
-
-      if (readable) {
-        Local<Value> input = js_stdio_option->Get(input_sym);
-        if (!Buffer::HasInstance(input))
-          // We can only deal with buffers for now.
-          assert(input->IsUndefined());
-        else
-          buf = uv_buf_init(Buffer::Data(input),
-                            static_cast<unsigned int>(Buffer::Length(input)));
-      }
-
-      return AddStdioPipe(child_fd, readable, writable, buf);
-
-    } else if (js_type->StrictEquals(fd_sym)) {
-      int inherit_fd = js_stdio_option->Get(fd_sym)->Int32Value();
-      return AddStdioInheritFD(child_fd, inherit_fd);
-
-    } else {
-      assert(0 && "invalid child stdio type");
-      return UV_EINVAL;
-    }
-  }
-
-  inline int AddStdioIgnore(uint32_t child_fd) {
-    assert(child_fd < stdio_count_);
-    assert(pipe_handlers_[child_fd] == NULL);
-
-    uv_stdio_containers_[child_fd].flags = UV_IGNORE;
-
-    return 0;
-  }
-
-  inline int AddStdioPipe(uint32_t child_fd, bool readable, bool writable, uv_buf_t input_buffer) {
-    assert(child_fd < stdio_count_);
-    assert(pipe_handlers_[child_fd] == NULL);
-
-    SyncStdioPipeHandler* h = new SyncStdioPipeHandler(this, readable, writable, input_buffer);
-
-    int r = h->Initialize(uv_loop_);
-    if (r < 0) {
-      delete h;
-      return r;
-    }
-
-    pipe_handlers_[child_fd] = h;
-
-    uv_stdio_containers_[child_fd].flags = h->uv_stdio_flags();
-    uv_stdio_containers_[child_fd].data.stream = h->uv_stream();
-
-    return 0;
-  }
-
-  inline int AddStdioInheritFD(uint32_t child_fd, int inherit_fd) {
-    assert(child_fd < stdio_count_);
-    assert(pipe_handlers_[child_fd] == NULL);
-
-    uv_stdio_containers_[child_fd].flags = UV_INHERIT_FD;
-    uv_stdio_containers_[child_fd].data.fd = inherit_fd;
-
-    return 0;
-  }
-
-  static bool IsSet(Local<Value> value) {
-    return !value->IsUndefined() && !value->IsNull();
-  }
-
-  template <typename t>
-  static bool CheckRange(Local<Value> js_value) {
-    if ((t) -1 > 0) {
-      // Unsigned range check.
-      if (!js_value->IsUint32())
-        return false;
-      if (js_value->Uint32Value() & ~((t) ~0))
-        return false;
-    } else {
-      // Unsigned range check.
-      if (!js_value->IsUint32())
-        return false;
-      if (js_value->Uint32Value() & ~((t) ~0))
-        return false;
-    }
-    return true;
-  }
-
+  
   int ParseOptions(Local<Value> js_value) {
     HandleScope scope(node_isolate);
     int r;
@@ -1045,92 +856,240 @@ class SpawnSyncHelper {
     return 0;
   }
 
+  int ParseStdioOptions(Local<Value> js_value) {
+    HandleScope scope;
+    Local<Array> js_stdio_options;
 
-  void SetError(int error) {
-    if (error_ == 0)
-      error_ = error;
-  }
+    if (!js_value->IsArray())
+      return UV_EINVAL;
 
-  void SetPipeError(int pipe_error) {
-    if (pipe_error_ == 0)
-      pipe_error_ = pipe_error;
-  }
+    js_stdio_options = js_value.As<Array>();
 
-  int GetError() {
-    if (error_ != 0)
-      return error_;
-    else
-      return pipe_error_;
-  }
+    stdio_count_ = js_stdio_options->Length();
 
- public:
-  ~SpawnSyncHelper() {
-    assert(lifecycle_ == kHandlesClosed);
+    pipe_handlers_ = new SyncStdioPipeHandler*[stdio_count_]();
+    uv_stdio_containers_ = new uv_stdio_container_t[stdio_count_];
 
-    if (pipe_handlers_ != NULL) {
-      for (size_t i = 0; i < stdio_count_; i++) {
-        if (pipe_handlers_[i] != NULL)
-          delete pipe_handlers_[i];
-      }
+    for (uint32_t i = 0; i < stdio_count_; i++) {
+      Local<Value> js_stdio_option = js_stdio_options->Get(i);
+
+      if (!js_stdio_option->IsObject())
+        return UV_EINVAL;
+
+      int r = ParseStdioOption(i, js_stdio_option.As<Object>());
+      if (r < 0)
+        return r;
     }
 
-    delete[] pipe_handlers_;
-    delete[] file_buffer_;
-    delete[] args_buffer_;
-    delete[] cwd_buffer_;
-    delete[] env_buffer_;
-    delete[] uv_stdio_containers_;
+    uv_process_options_.stdio = uv_stdio_containers_;
+    uv_process_options_.stdio_count = stdio_count_;
+
+    return 0;
   }
 
- private:
-  size_t max_buffer_;
-  uint64_t timeout_;
-  int kill_signal_;
+  int ParseStdioOption(int child_fd, Local<Object> js_stdio_option) {
+    Local<String> type_sym = FIXED_ONE_BYTE_STRING(node_isolate, "type");
+    Local<String> ignore_sym = FIXED_ONE_BYTE_STRING(node_isolate, "ignore");
+    Local<String> pipe_sym = FIXED_ONE_BYTE_STRING(node_isolate, "pipe");
+    Local<String> inherit_sym = FIXED_ONE_BYTE_STRING(node_isolate, "inherit");
+    Local<String> readable_sym = FIXED_ONE_BYTE_STRING(node_isolate, "readable");
+    Local<String> writable_sym = FIXED_ONE_BYTE_STRING(node_isolate, "writable");
+    Local<String> input_sym = FIXED_ONE_BYTE_STRING(node_isolate, "input");
+    Local<String> fd_sym = FIXED_ONE_BYTE_STRING(node_isolate, "fd");
 
-  uv_loop_t* uv_loop_;
+    Local<Value> js_type = js_stdio_option->Get(type_sym);
 
-  uint32_t stdio_count_;
-  uv_stdio_container_t* uv_stdio_containers_;
-  SyncStdioPipeHandler** pipe_handlers_;
+    if (js_type->StrictEquals(ignore_sym)) {
+      return AddStdioIgnore(child_fd);
 
-  uv_process_options_t uv_process_options_;
-  char* file_buffer_;
-  char* args_buffer_;
-  char* env_buffer_;
-  char* cwd_buffer_;
+    } else if (js_type->StrictEquals(pipe_sym)) {
+      bool readable = js_stdio_option->Get(readable_sym)->BooleanValue();
+      bool writable = js_stdio_option->Get(writable_sym)->BooleanValue();
 
-  uv_process_t uv_process;
-  bool uv_process_killed_;
+      uv_buf_t buf = uv_buf_init(NULL, 0);
 
-  size_t buffered_data_;
-  int64_t exit_code_;
-  int term_sig_;
+      if (readable) {
+        Local<Value> input = js_stdio_option->Get(input_sym);
+        if (!Buffer::HasInstance(input))
+          // We can only deal with buffers for now.
+          assert(input->IsUndefined());
+        else
+          buf = uv_buf_init(Buffer::Data(input),
+                            static_cast<unsigned int>(Buffer::Length(input)));
+      }
 
-  uv_timer_t uv_timer;
-  bool uv_timer_initialized_;
+      return AddStdioPipe(child_fd, readable, writable, buf);
 
-  // Errors that happen in one of the pipe handlers are stored in the
-  // `pipe_error` field. They are treated as "low-priority", only to be
-  // reported if no more serious errors happened.
-  int error_;
-  int pipe_error_;
+    } else if (js_type->StrictEquals(fd_sym)) {
+      int inherit_fd = js_stdio_option->Get(fd_sym)->Int32Value();
+      return AddStdioInheritFD(child_fd, inherit_fd);
 
-  sync_process_lifecycle lifecycle_;
-};
+    } else {
+      assert(0 && "invalid child stdio type");
+      return UV_EINVAL;
+    }
+  }
+
+  
+  inline int AddStdioIgnore(uint32_t child_fd) {
+    assert(child_fd < stdio_count_);
+    assert(pipe_handlers_[child_fd] == NULL);
+
+    uv_stdio_containers_[child_fd].flags = UV_IGNORE;
+
+    return 0;
+  }
+
+  inline int AddStdioPipe(uint32_t child_fd, bool readable, bool writable, uv_buf_t input_buffer) {
+    assert(child_fd < stdio_count_);
+    assert(pipe_handlers_[child_fd] == NULL);
+
+    SyncStdioPipeHandler* h = new SyncStdioPipeHandler(this, readable, writable, input_buffer);
+
+    int r = h->Initialize(uv_loop_);
+    if (r < 0) {
+      delete h;
+      return r;
+    }
+
+    pipe_handlers_[child_fd] = h;
+
+    uv_stdio_containers_[child_fd].flags = h->uv_stdio_flags();
+    uv_stdio_containers_[child_fd].data.stream = h->uv_stream();
+
+    return 0;
+  }
+
+  inline int AddStdioInheritFD(uint32_t child_fd, int inherit_fd) {
+    assert(child_fd < stdio_count_);
+    assert(pipe_handlers_[child_fd] == NULL);
+
+    uv_stdio_containers_[child_fd].flags = UV_INHERIT_FD;
+    uv_stdio_containers_[child_fd].data.fd = inherit_fd;
+
+    return 0;
+  }
+
+  static bool IsSet(Local<Value> value) {
+    return !value->IsUndefined() && !value->IsNull();
+  }
+
+  template <typename t>
+  static bool CheckRange(Local<Value> js_value) {
+    if ((t) -1 > 0) {
+      // Unsigned range check.
+      if (!js_value->IsUint32())
+        return false;
+      if (js_value->Uint32Value() & ~((t) ~0))
+        return false;
+    } else {
+      // Unsigned range check.
+      if (!js_value->IsUint32())
+        return false;
+      if (js_value->Uint32Value() & ~((t) ~0))
+        return false;
+    }
+    return true;
+  }
+
+  static int CopyJsString(Local<Value> js_value, char*& target) {
+    Local<String> js_string;
+    size_t size, written;
+    char* buffer;
+
+    if (js_value->IsString())
+      js_string = js_value.As<String>();
+    else
+      js_string = js_value->ToString();
+
+    // Include space for null terminator byte.
+    size = StringBytes::StorageSize(js_string, UTF8) + 1;
+
+    buffer = new char[size];
+
+    written = StringBytes::Write(buffer, -1, js_string, UTF8);
+    buffer[written] = '\0';
+
+    target = buffer;
+    return 0;
+  }
+
+  static int CopyJsStringArray(Local<Value> js_value, char*& target) {
+    Local<Array> js_array;
+    uint32_t length;
+    size_t list_size, data_size, data_offset;
+    char** list;
+    char* buffer;
+
+    if (!js_value->IsArray())
+      return UV_EINVAL;
+
+    js_array = js_value.As<Array>()->Clone().As<Array>();
+    length = js_array->Length();
+
+    // Convert all array elements to string. Modify the js object itself if
+    // needed - it's okay since we cloned the original object.
+    for (uint32_t i = 0; i < length; i++) {
+      if (!js_array->Get(i)->IsString())
+        js_array->Set(i, js_array->Get(i)->ToString());
+    }
+
+    // Index has a pointer to every string element, plus one more for a final
+    // null pointer.
+    list_size = (length + 1) * sizeof *list;
+
+    // Compute the length of all strings. Include room for null terminator
+    // after every string. Align strings to cache lines.
+    data_size = 0;
+    for (uint32_t i = 0; i < length; i++) {
+      data_size += StringBytes::StorageSize(js_array->Get(i), UTF8) + 1;
+      data_size = ROUND_UP(data_size, sizeof(void*));
+    }
+
+    buffer = new char[list_size + data_size];
+
+    list = reinterpret_cast<char**>(buffer);
+    data_offset = list_size;
+
+    for (uint32_t i = 0; i < length; i++) {
+      list[i] = buffer + data_offset;
+      data_offset += StringBytes::Write(buffer + data_offset,
+                                        -1,
+                                        js_array->Get(i),
+                                        UTF8);
+      buffer[data_offset++] = '\0';
+      data_offset = ROUND_UP(data_offset, sizeof(void*));
+    }
+
+    list[length] = NULL;
+
+    target = buffer;
+    return 0;
+  }
+
+static void ExitCallback(uv_process_t* handle, int64_t exit_code, int term_sig) {
+    SpawnSyncHelper* self = reinterpret_cast<SpawnSyncHelper*>(handle->data);
+    self->OnExit(exit_code, term_sig);
+  }
+
+  static void TimeoutCallback(uv_timer_t* handle, int status) {
+    SpawnSyncHelper* self = reinterpret_cast<SpawnSyncHelper*>(handle->data);
+    self->OnTimeout(status);
+  }
+
+  static void TimerCloseCallback(uv_handle_t* handle) {
+    // No-op.
+  }
+  
+
+  
+  
+
+  
 
 
 
 
-void SpawnSyncHelper::Spawn(const FunctionCallbackInfo<Value>& args) {
-  HandleScope scope(node_isolate);
-  SpawnSyncHelper p;
-  Local<Value> result = p.DoSpawn(args[0]);
-  args.GetReturnValue().Set(result);
-}
-
-void SpawnSyncHelper::Initialize(Handle<Object> target) {
-  NODE_SET_METHOD(target, "spawnSync", Spawn);
-}
 
 
 }  // namespace node
