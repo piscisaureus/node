@@ -405,7 +405,7 @@ class SyncProcess {
       return SetError(r);
     uv_process.data = this;
 
-    for (int32_t i = 0; i < stdio_count_; i++) {
+    for (uint32_t i = 0; i < stdio_count_; i++) {
       SyncStdioPipeHandler* h = pipe_handlers_[i];
       if (h != NULL) {
         r = h->Start();
@@ -428,7 +428,7 @@ class SyncProcess {
 
     if (pipe_handlers_ != NULL) {
       assert(uv_loop_ != NULL);
-      for (int i = 0; i < stdio_count_; i++) {
+      for (uint32_t i = 0; i < stdio_count_; i++) {
         if (pipe_handlers_[i] != NULL)
           pipe_handlers_[i]->Close();
       }
@@ -503,7 +503,7 @@ class SyncProcess {
     HandleScope scope(node_isolate);
     Local<Array> js_output = Array::New(stdio_count_);
 
-    for (int i = 0; i < stdio_count_; i++) {
+    for (uint32_t i = 0; i < stdio_count_; i++) {
       SyncStdioPipeHandler* h = pipe_handlers_[i];
       if (h != NULL && h->writable())
         js_output->Set(i, h->GetOutputAsBuffer());
@@ -526,7 +526,11 @@ class SyncProcess {
     exit_code_ = exit_code;
     term_sig_ = term_sig;
 
-    // Stop the kill timer if it is running.
+    // Stop the timeout timer if it is running.
+    StopTimer();
+  }
+
+  void StopTimer() {
     assert((timeout_ > 0) == uv_timer_initialized_);
     if (uv_timer_initialized_) {
       int r = uv_timer_stop(&uv_timer);
@@ -554,6 +558,9 @@ class SyncProcess {
       r = uv_process_kill(&uv_process, kill_signal_);
       assert(r >= 0 || r == UV_ESRCH);
     }
+
+    // Stop the timeout timer if it is running.
+    StopTimer();
   }
 
   void OnTimeout(int status) {
@@ -667,7 +674,7 @@ class SyncProcess {
     pipe_handlers_ = new SyncStdioPipeHandler*[stdio_count_]();
     uv_stdio_containers_ = new uv_stdio_container_t[stdio_count_];
 
-    for (int i = 0; i < stdio_count_; i++) {
+    for (uint32_t i = 0; i < stdio_count_; i++) {
       Local<Value> js_stdio_option = js_stdio_options->Get(i);
 
       if (!js_stdio_option->IsObject())
@@ -727,7 +734,7 @@ class SyncProcess {
     }
   }
 
-  inline int AddStdioIgnore(int child_fd) {
+  inline int AddStdioIgnore(uint32_t child_fd) {
     assert(child_fd < stdio_count_);
     assert(pipe_handlers_[child_fd] == NULL);
 
@@ -736,7 +743,7 @@ class SyncProcess {
     return 0;
   }
 
-  inline int AddStdioPipe(int child_fd, bool readable, bool writable, uv_buf_t input_buffer) {
+  inline int AddStdioPipe(uint32_t child_fd, bool readable, bool writable, uv_buf_t input_buffer) {
     assert(child_fd < stdio_count_);
     assert(pipe_handlers_[child_fd] == NULL);
 
@@ -756,7 +763,7 @@ class SyncProcess {
     return 0;
   }
 
-  inline int AddStdioInheritFD(int child_fd, int inherit_fd) {
+  inline int AddStdioInheritFD(uint32_t child_fd, int inherit_fd) {
     assert(child_fd < stdio_count_);
     assert(pipe_handlers_[child_fd] == NULL);
 
