@@ -113,7 +113,6 @@ class SyncStdioPipeHandler {
       readable_(readable),
       writable_(writable),
       input_buffer_(input_buffer),
-      status_(0),
       first_buffer_(NULL),
       last_buffer_(NULL),
       lifecycle_(kUninitialized) {
@@ -237,11 +236,6 @@ class SyncStdioPipeHandler {
       flags |= UV_WRITABLE_PIPE;
 
     return static_cast<::uv_stdio_flags>(flags);
-  }
-
-  inline int status() const {
-    assert(lifecycle_ == kInitialized || lifecycle_ == kStarted);
-    return status_;
   }
 
  private:
@@ -741,7 +735,7 @@ class SpawnSyncHelper {
     assert(child_fd < stdio_count_);
     assert(pipe_handlers_[child_fd] == NULL);
 
-    SyncStdioPipeHandler* h = new SyncStdioPipeHandler(this, child_fd, readable, writable, input_buffer);
+    SyncStdioPipeHandler* h = new SyncStdioPipeHandler(this, readable, writable, input_buffer);
 
     int r = h->Initialize(uv_loop());
     if (r < 0) {
