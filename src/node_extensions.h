@@ -39,6 +39,7 @@
     ITEM(node_http_parser)                                                    \
     ITEM(node_os)                                                             \
     ITEM(node_smalloc)                                                        \
+    ITEM(node_spawn_sync)                                                     \
     ITEM(node_zlib)                                                           \
                                                                               \
     ITEM(node_uv)                                                             \
@@ -51,7 +52,7 @@
     ITEM(node_process_wrap)                                                   \
     ITEM(node_fs_event_wrap)                                                  \
     ITEM(node_signal_wrap)                                                    \
-                                                                              \
+                                                                              \                                                                              \
     END                                                                       \
 
 #endif  // SRC_NODE_EXTENSIONS_H_
