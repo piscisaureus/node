@@ -20,73 +20,49 @@
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "node.h"
-#include "handle_wrap.h"
 #include "node_buffer.h"
-#include "node_wrap.h"
+#include "string_bytes.h"
 
 #include <string.h>
 #include <stdlib.h>
 
+
 namespace node {
 
 using v8::Array;
-using v8::Function;
 using v8::FunctionCallbackInfo;
-using v8::FunctionTemplate;
 using v8::Handle;
 using v8::HandleScope;
 using v8::Integer;
 using v8::Local;
+using v8::Null;
 using v8::Number;
 using v8::Object;
 using v8::String;
-using v8::TryCatch;
 using v8::Value;
 
 
+class SyncStdioBuffer;
+class SyncStdioPipeHandler;
+class SpawnSyncHelper;
 
-static Cached<String> onexit_sym;
 
 class SyncStdioBuffer {
   static const unsigned int kBufferSize = 65536;
 
  public:
-  inline SyncStdioBuffer(): used_(0), next_(NULL) {
-  }
+  inline SyncStdioBuffer();
 
-  inline uv_buf_t OnAlloc(size_t suggested_size) const {
-    if (used() == kBufferSize)
-      return uv_buf_init(NULL, 0);
+  inline uv_buf_t OnAlloc(size_t suggested_size) const;
+  inline void OnRead(uv_buf_t buf, size_t nread);
+  
+  inline size_t Copy(char* dest) const;
 
-    return uv_buf_init(data_ + used(), available());
-  }
+  inline unsigned int available() const;
+  inline unsigned int used() const;
 
-  inline void OnRead(uv_buf_t buf, size_t nread) {
-    // If we hand out the same chunk twice, this should catch it.
-    assert(buf.base == data_ + used());
-    used_ += static_cast<unsigned int>(nread);
-  }
-
-  inline unsigned int available() const {
-    return sizeof data_ - used();
-  }
-
-  inline unsigned int used() const {
-    return used_;
-  }
-
-  inline size_t Copy(char* dest) const {
-    memcpy(dest, data_, used());
-    return used();
-  }
-
-  inline SyncStdioBuffer* next() const {
-    return next_;
-  }
-
-  inline void set_next(SyncStdioBuffer* next) {
-    next_ = next;
-  }
+  inline SyncStdioBuffer* next() const;
+  inline void set_next(SyncStdioBuffer* next);
 
  private:
   // use unsigned int because that's what uv_buf_init takes.
@@ -96,7 +72,6 @@ class SyncStdioBuffer {
   SyncStdioBuffer* next_;
 };
 
-class SpawnSyncHelper;
 
 class SyncStdioPipeHandler {
  enum pipe_handler_lifecycle {
@@ -108,215 +83,57 @@ class SyncStdioPipeHandler {
  };
 
  public:
-  SyncStdioPipeHandler(SpawnSyncHelper* process_handler, bool readable, bool writable, uv_buf_t input_buffer):
-      process_handler_(process_handler),
-      readable_(readable),
-      writable_(writable),
-      input_buffer_(input_buffer),
-      first_buffer_(NULL),
-      last_buffer_(NULL),
-      lifecycle_(kUninitialized) {
-    assert(readable || writable);
-  }
+  SyncStdioPipeHandler(SpawnSyncHelper* process_handler, bool readable, bool writable, uv_buf_t input_buffer);
+  ~SyncStdioPipeHandler();
 
-  ~SyncStdioPipeHandler() {
-    assert(lifecycle_ == kUninitialized || lifecycle_ == kClosed);
+  int Initialize(uv_loop_t* loop);
+  int Start();
+  void Close();
 
-    SyncStdioBuffer* buf;
-    SyncStdioBuffer* next;
+  Local<Object> GetOutputAsBuffer() const;
 
-    for (buf = first_buffer_; buf != NULL; buf = next) {
-      next = buf->next();
-      delete buf;
-    }
-  }
+  inline bool readable() const;
+  inline bool writable() const;
+  inline ::uv_stdio_flags uv_stdio_flags() const;
 
-  int Initialize(uv_loop_t* loop) {
-    assert(lifecycle_ == kUninitialized);
-
-    int r = uv_pipe_init(loop, uv_pipe(), 0);
-    if (r < 0)
-      return r;
-
-    uv_pipe()->data = this;
-
-    lifecycle_ = kInitialized;
-    return 0;
-  }
-
-  int Start() {
-    assert(lifecycle_ == kInitialized);
-
-    // Set the busy flag already. If this function fails no recovery is
-    // possible.
-    lifecycle_ = kStarted;
-
-    if (readable()) {
-      if (input_buffer_.len > 0) {
-        assert(input_buffer_.base != NULL);
-
-        int r = uv_write(&write_req_, uv_stream(), &input_buffer_, 1, WriteCallback);
-        if (r < 0)
-          return r;
-      }
-
-      int r = uv_shutdown(&shutdown_req_, uv_stream(), ShutdownCallback);
-      if (r < 0)
-        return r;
-    }
-
-    if (writable()) {
-      int r = uv_read_start(uv_stream(), AllocCallback, ReadCallback);
-      if (r < 0)
-        return r;
-    }
-
-    return 0;
-  }
-
-  void Close() {
-    assert(lifecycle_ == kInitialized || lifecycle_ == kStarted);
-
-    uv_close(uv_handle(), CloseCallback);
-
-    lifecycle_ = kClosing;
-  }
-
-  size_t OutputLength() const {
-    size_t size = 0;
-    for (SyncStdioBuffer* buf = first_buffer_; buf != NULL; buf = buf->next())
-      size += buf->used();
-
-    return size;
-  }
-
-  size_t CopyOutput(char* dest) const {
-    size_t offset = 0;
-    for (SyncStdioBuffer* buf = first_buffer_; buf != NULL; buf = buf->next())
-      offset += buf->Copy(dest + offset);
-
-    return offset;
-  }
-
-  Local<Object> GetOutputAsBuffer() const {
-    size_t length = OutputLength();
-    Local<Object> js_buffer = Buffer::New(length);
-    CopyOutput(Buffer::Data(js_buffer));
-    return js_buffer;
-  }
-
-  inline uv_pipe_t* uv_pipe() const {
-    assert(lifecycle_ < kClosing);
-    return &uv_pipe_;
-  }
-
-  inline uv_stream_t* uv_stream() const {
-    return reinterpret_cast<uv_stream_t*>(uv_pipe());
-  }
-
-  inline uv_handle_t* uv_handle() const {
-    return reinterpret_cast<uv_handle_t*>(uv_pipe());
-  }
-
-  inline bool readable() const {
-    return readable_;
-  }
-
-  inline bool writable() const {
-    return writable_;
-  }
-
-  inline ::uv_stdio_flags uv_stdio_flags() const {
-    unsigned int flags;
-
-    flags = UV_CREATE_PIPE;
-    if (readable())
-      flags |= UV_READABLE_PIPE;
-    if (writable())
-      flags |= UV_WRITABLE_PIPE;
-
-    return static_cast<::uv_stdio_flags>(flags);
-  }
+  inline uv_pipe_t* uv_pipe() const;
+  inline uv_stream_t* uv_stream() const;
+  inline uv_handle_t* uv_handle() const;
 
  private:
-  inline uv_buf_t OnAlloc(size_t suggested_size) {
-    // This function that libuv will never allocate two buffers for the same
-    // stream at the same time. There's an assert in SyncStdioBuffer::OnRead that
-    // would fail if this assumption was violated.
+  inline size_t OutputLength() const;
+  inline size_t CopyOutput(char* dest) const;
 
-    if (last_buffer_ == NULL) {
-      // Allocate the first capture buffer.
-      first_buffer_ = last_buffer_ = new SyncStdioBuffer();
+  inline uv_buf_t OnAlloc(size_t suggested_size);
+  inline void OnRead(uv_buf_t buf, ssize_t nread);
+  inline void OnWriteDone(int result);
+  inline void OnShutdownDone(int result);
+  inline void OnClose();
 
-    } else if (last_buffer_->available() == 0) {
-      // The current capture buffer is full so get us a new one.
-      SyncStdioBuffer* buf = new SyncStdioBuffer();
-      last_buffer_->set_next(buf);
-      last_buffer_ = buf;
-    }
-
-    return last_buffer_->OnAlloc(suggested_size);
-  }
-
-  static uv_buf_t AllocCallback(uv_handle_t* handle, size_t suggested_size) {
-    SyncStdioPipeHandler* self = reinterpret_cast<SyncStdioPipeHandler*>(handle->data);
-    return self->OnAlloc(suggested_size);
-  }
-
-  void OnRead(uv_buf_t buf, ssize_t nread);
-
-  static void ReadCallback(uv_stream_t* stream, ssize_t nread, uv_buf_t buf) {
-    SyncStdioPipeHandler* self = reinterpret_cast<SyncStdioPipeHandler*>(stream->data);
-    self->OnRead(buf, nread);
-  }
-
-  inline void OnWriteDone(int result) {
-    if (result < 0)
-      SetError(result);
-  }
-
-  static void WriteCallback(uv_write_t* req, int result) {
-    SyncStdioPipeHandler* self = reinterpret_cast<SyncStdioPipeHandler*>(req->handle->data);
-    self->OnWriteDone(result);
-  }
-
-  inline void OnShutdownDone(int result) {
-    if (result < 0)
-      SetError(result);
-  }
-
-  static void ShutdownCallback(uv_shutdown_t* req, int result) {
-    SyncStdioPipeHandler* self = reinterpret_cast<SyncStdioPipeHandler*>(req->handle->data);
-    self->OnShutdownDone(result);
-  }
-
-  inline void OnClose() {
-    lifecycle_ = kClosed;
-  }
-
-  static void CloseCallback(uv_handle_t* handle) {
-    SyncStdioPipeHandler* self = reinterpret_cast<SyncStdioPipeHandler*>(handle->data);
-    self->OnClose();
-  }
-
-  void SetError(int error);
+  static uv_buf_t AllocCallback(uv_handle_t* handle, size_t suggested_size);
+  static void ReadCallback(uv_stream_t* stream, ssize_t nread, uv_buf_t buf);
+  static void WriteCallback(uv_write_t* req, int result);
+  static void ShutdownCallback(uv_shutdown_t* req, int result);
+  static void CloseCallback(uv_handle_t* handle);
+  
+  inline void SetError(int error);
 
   SpawnSyncHelper* process_handler_;
 
-  mutable uv_pipe_t uv_pipe_;
-
-  uv_buf_t input_buffer_;
-  uv_write_t write_req_;
-  uv_shutdown_t shutdown_req_;
-
   bool readable_;
   bool writable_;
-
+  uv_buf_t input_buffer_;
+  
   SyncStdioBuffer* first_buffer_;
   SyncStdioBuffer* last_buffer_;
 
+  mutable uv_pipe_t uv_pipe_;
+  uv_write_t write_req_;
+  uv_shutdown_t shutdown_req_;
+
   pipe_handler_lifecycle lifecycle_;
 };
+
 
 class SpawnSyncHelper {
   enum sync_process_lifecycle {
@@ -326,7 +143,350 @@ class SpawnSyncHelper {
   };
 
  public:
-  static void InitializeBindings(Handle<Object> target);
+  static void Initialize(Handle<Object> target);
+  static void Spawn(const FunctionCallbackInfo<Value>& args);
+
+ private:
+  SpawnSyncHelper();
+  ~SpawnSyncHelper();
+
+  Local<Object> DoSpawn(Local<Value> options);
+  void TryInitializeAndSpawn(Local<Value> options);
+  void CloseHandles();
+  
+  void OnExit(int64_t exit_code, int term_sig);
+  
+  void OnTimeout(int status);
+  void IncrementBufferSizeAndCheckOverflow(ssize_t length);
+  void StopTimer();
+  void Kill();
+  
+  Local<Object> BuildResultsObject();
+  Local<Array> BuildOutputObject();
+
+  static void ExitCallback(uv_process_t* handle, int64_t exit_code, int term_sig);
+  static void TimeoutCallback(uv_timer_t* handle, int status);
+  static void TimerCloseCallback(uv_handle_t* handle);
+  
+  int ParseOptions(Local<Value> js_value);
+  int ParseStdioOptions(Local<Value> js_value);
+  int ParseStdioOption(int child_fd, Local<Object> js_stdio_option);
+  
+  inline int AddStdioIgnore(uint32_t child_fd);
+  inline int AddStdioPipe(uint32_t child_fd, bool readable, bool writable, uv_buf_t input_buffer);
+  inline int AddStdioInheritFD(uint32_t child_fd, int inherit_fd);
+
+  static bool IsSet(Local<Value> value);
+  template <typename t> static bool CheckRange(Local<Value> js_value);
+  static int CopyJsStringArray(Local<Value> js_value, char*& target);
+  static int CopyJsString(Local<Value> js_value, char*& target);
+
+  int GetError();
+  void SetError(int error);
+  void SetPipeError(int pipe_error);
+   
+ private:
+  size_t max_buffer_;
+  uint64_t timeout_;
+  int kill_signal_;
+
+  uv_loop_t* uv_loop_;
+
+  uint32_t stdio_count_;
+  uv_stdio_container_t* uv_stdio_containers_;
+  SyncStdioPipeHandler** pipe_handlers_;
+
+  uv_process_options_t uv_process_options_;
+  char* file_buffer_;
+  char* args_buffer_;
+  char* env_buffer_;
+  char* cwd_buffer_;
+
+  uv_process_t uv_process;
+  bool uv_process_killed_;
+
+  size_t buffered_data_;
+  int64_t exit_code_;
+  int term_sig_;
+
+  uv_timer_t uv_timer;
+  bool uv_timer_initialized_;
+
+  // Errors that happen in one of the pipe handlers are stored in the
+  // `pipe_error` field. They are treated as "low-priority", only to be
+  // reported if no more serious errors happened.
+  int error_;
+  int pipe_error_;
+
+  sync_process_lifecycle lifecycle_;
+};
+
+
+SyncStdioBuffer::SyncStdioBuffer(): 
+  used_(0), 
+  next_(NULL) {
+}
+
+uv_buf_t SyncStdioBuffer::OnAlloc(size_t suggested_size) const {
+  if (used() == kBufferSize)
+    return uv_buf_init(NULL, 0);
+
+  return uv_buf_init(data_ + used(), available());
+}
+
+void SyncStdioBuffer::OnRead(uv_buf_t buf, size_t nread) {
+  // If we hand out the same chunk twice, this should catch it.
+  assert(buf.base == data_ + used());
+  used_ += static_cast<unsigned int>(nread);
+}
+
+inline size_t SyncStdioBuffer::Copy(char* dest) const {
+  memcpy(dest, data_, used());
+  return used();
+}
+
+unsigned int SyncStdioBuffer::available() const { 
+  return sizeof data_ - used(); 
+}
+
+unsigned int SyncStdioBuffer::used() const { 
+  return used_; 
+}
+
+SyncStdioBuffer* SyncStdioBuffer::next() const { 
+  return next_; 
+}
+
+void SyncStdioBuffer::set_next(SyncStdioBuffer* next) { 
+  next_ = next; 
+}
+
+
+SyncStdioPipeHandler::SyncStdioPipeHandler(SpawnSyncHelper* process_handler, bool readable, bool writable, uv_buf_t input_buffer):
+    process_handler_(process_handler),
+    readable_(readable),
+    writable_(writable),
+    input_buffer_(input_buffer),
+    first_buffer_(NULL),
+    last_buffer_(NULL),
+    lifecycle_(kUninitialized) {
+  assert(readable || writable);
+}
+
+SyncStdioPipeHandler::~SyncStdioPipeHandler() {
+  assert(lifecycle_ == kUninitialized || lifecycle_ == kClosed);
+
+  SyncStdioBuffer* buf;
+  SyncStdioBuffer* next;
+
+  for (buf = first_buffer_; buf != NULL; buf = next) {
+    next = buf->next();
+    delete buf;
+  }
+}
+
+int SyncStdioPipeHandler::Initialize(uv_loop_t* loop) {
+  assert(lifecycle_ == kUninitialized);
+
+  int r = uv_pipe_init(loop, uv_pipe(), 0);
+  if (r < 0)
+    return r;
+
+  uv_pipe()->data = this;
+
+  lifecycle_ = kInitialized;
+  return 0;
+}
+
+int SyncStdioPipeHandler::Start() {
+  assert(lifecycle_ == kInitialized);
+
+  // Set the busy flag already. If this function fails no recovery is
+  // possible.
+  lifecycle_ = kStarted;
+
+  if (readable()) {
+    if (input_buffer_.len > 0) {
+      assert(input_buffer_.base != NULL);
+
+      int r = uv_write(&write_req_, uv_stream(), &input_buffer_, 1, WriteCallback);
+      if (r < 0)
+        return r;
+    }
+
+    int r = uv_shutdown(&shutdown_req_, uv_stream(), ShutdownCallback);
+    if (r < 0)
+      return r;
+  }
+
+  if (writable()) {
+    int r = uv_read_start(uv_stream(), AllocCallback, ReadCallback);
+    if (r < 0)
+      return r;
+  }
+
+  return 0;
+}
+
+void SyncStdioPipeHandler::Close() {
+  assert(lifecycle_ == kInitialized || lifecycle_ == kStarted);
+
+  uv_close(uv_handle(), CloseCallback);
+
+  lifecycle_ = kClosing;
+}
+
+Local<Object> SyncStdioPipeHandler::GetOutputAsBuffer() const {
+  size_t length = OutputLength();
+  Local<Object> js_buffer = Buffer::New(length);
+  CopyOutput(Buffer::Data(js_buffer));
+  return js_buffer;
+}
+
+bool SyncStdioPipeHandler::readable() const {
+  return readable_;
+}
+
+bool SyncStdioPipeHandler::writable() const {
+  return writable_;
+}
+
+uv_stdio_flags SyncStdioPipeHandler::uv_stdio_flags() const {
+  unsigned int flags;
+
+  flags = UV_CREATE_PIPE;
+  if (readable())
+    flags |= UV_READABLE_PIPE;
+  if (writable())
+    flags |= UV_WRITABLE_PIPE;
+
+  return static_cast<::uv_stdio_flags>(flags);
+}
+
+uv_pipe_t* SyncStdioPipeHandler::uv_pipe() const {
+  assert(lifecycle_ < kClosing);
+  return &uv_pipe_;
+}
+
+uv_stream_t* SyncStdioPipeHandler::uv_stream() const {
+  return reinterpret_cast<uv_stream_t*>(uv_pipe());
+}
+
+inline uv_handle_t* SyncStdioPipeHandler::uv_handle() const {
+  return reinterpret_cast<uv_handle_t*>(uv_pipe());
+}
+
+size_t SyncStdioPipeHandler::OutputLength() const {
+  size_t size = 0;
+  for (SyncStdioBuffer* buf = first_buffer_; buf != NULL; buf = buf->next())
+    size += buf->used();
+
+  return size;
+}
+
+size_t SyncStdioPipeHandler::CopyOutput(char* dest) const {
+  size_t offset = 0;
+  for (SyncStdioBuffer* buf = first_buffer_; buf != NULL; buf = buf->next())
+    offset += buf->Copy(dest + offset);
+
+  return offset;
+}
+
+uv_buf_t SyncStdioPipeHandler::OnAlloc(size_t suggested_size) {
+  // This function that libuv will never allocate two buffers for the same
+  // stream at the same time. There's an assert in SyncStdioBuffer::OnRead that
+  // would fail if this assumption was violated.
+
+  if (last_buffer_ == NULL) {
+    // Allocate the first capture buffer.
+    first_buffer_ = last_buffer_ = new SyncStdioBuffer();
+
+  } else if (last_buffer_->available() == 0) {
+    // The current capture buffer is full so get us a new one.
+    SyncStdioBuffer* buf = new SyncStdioBuffer();
+    last_buffer_->set_next(buf);
+    last_buffer_ = buf;
+  }
+
+  return last_buffer_->OnAlloc(suggested_size);
+}
+
+void SyncStdioPipeHandler::OnRead(uv_buf_t buf, ssize_t nread) {
+  fprintf(stderr, "%d\n", (int) nread);
+
+  if (nread == UV_EOF) {
+    // Libuv implicitly stops reading on EOF.
+
+  } else if (nread < 0) {
+    SetError(static_cast<int>(nread));
+    // At some point libuv should really implicitly stop reading on error.
+    uv_read_stop(uv_stream());
+
+  } else {
+    last_buffer_->OnRead(buf, nread);
+    process_handler_->IncrementBufferSizeAndCheckOverflow(nread);
+  }
+}
+
+void SyncStdioPipeHandler::OnWriteDone(int result) {
+  if (result < 0)
+    SetError(result);
+}
+
+void SyncStdioPipeHandler::OnShutdownDone(int result) {
+  if (result < 0)
+    SetError(result);
+}
+
+void SyncStdioPipeHandler::OnClose() {
+  lifecycle_ = kClosed;
+}
+
+uv_buf_t SyncStdioPipeHandler::AllocCallback(uv_handle_t* handle, size_t suggested_size) {
+  SyncStdioPipeHandler* self = reinterpret_cast<SyncStdioPipeHandler*>(handle->data);
+  return self->OnAlloc(suggested_size);
+}
+
+void SyncStdioPipeHandler::ReadCallback(uv_stream_t* stream, ssize_t nread, uv_buf_t buf) {
+  SyncStdioPipeHandler* self = reinterpret_cast<SyncStdioPipeHandler*>(stream->data);
+  self->OnRead(buf, nread);
+}
+
+void SyncStdioPipeHandler::WriteCallback(uv_write_t* req, int result) {
+  SyncStdioPipeHandler* self = reinterpret_cast<SyncStdioPipeHandler*>(req->handle->data);
+  self->OnWriteDone(result);
+}
+
+void SyncStdioPipeHandler::ShutdownCallback(uv_shutdown_t* req, int result) {
+  SyncStdioPipeHandler* self = reinterpret_cast<SyncStdioPipeHandler*>(req->handle->data);
+  self->OnShutdownDone(result);
+}
+
+void SyncStdioPipeHandler::CloseCallback(uv_handle_t* handle) {
+  SyncStdioPipeHandler* self = reinterpret_cast<SyncStdioPipeHandler*>(handle->data);
+  self->OnClose();
+}
+
+void SyncStdioPipeHandler::SetError(int error) {
+  assert(error != 0);
+  process_handler_->SetPipeError(error);
+}
+
+
+
+
+
+
+
+class SpawnSyncHelper {
+  enum sync_process_lifecycle {
+    kUninitialized = 0,
+    kInitialized,
+    kHandlesClosed
+  };
+
+ public:
+  static void Initialize(Handle<Object> target);
   static void Spawn(const FunctionCallbackInfo<Value>& args);
 
   SpawnSyncHelper():
@@ -353,10 +513,10 @@ class SpawnSyncHelper {
    {
    }
 
-  void TryExecute(Local<Value> options) {
+  void TryInitializeAndSpawn(Local<Value> options) {
     int r;
 
-    // There is no recovery from failure inside TryExecute.
+    // There is no recovery from failure inside TryInitializeAndSpawn.
     assert(lifecycle_ == kUninitialized);
     lifecycle_ = kInitialized;
 
@@ -403,7 +563,7 @@ class SpawnSyncHelper {
     }
 
 
-    r = uv_run(uv_loop_, UV_RUN_DEFAULT);
+    r = uv_DoSpawn(uv_loop_, UV_RUN_DEFAULT);
     if (r < 0)
       // We can't handle uv_run failure.
       abort();
@@ -430,7 +590,7 @@ class SpawnSyncHelper {
 
     if (uv_loop_ != NULL) {
       // Give closing watchers a chance to finish closing and get their close callbacks called.
-      int r = uv_run(uv_loop_, UV_RUN_DEFAULT);
+      int r = uv_DoSpawn(uv_loop_, UV_RUN_DEFAULT);
       if (r < 0)
         abort();
 
@@ -438,12 +598,12 @@ class SpawnSyncHelper {
     }
   }
 
-  Local<Object> Run(Local<Value> options) {
+  Local<Object> DoSpawn(Local<Value> options) {
     assert(lifecycle_ == kUninitialized);
 
     HandleScope scope;
 
-    TryExecute(options);
+    TryInitializeAndSpawn(options);
     CloseHandles();
 
     Local<Object> result = BuildResultsObject();
@@ -469,17 +629,17 @@ class SpawnSyncHelper {
 
     } else
       // If exit_code_ < 0 the process was never started because of some error.
-      js_result->Set(status_key, v8::Null());
+      js_result->Set(status_key, Null());
 
     if (term_sig_ > 0)
       js_result->Set(signal_key, String::NewFromUtf8(node_isolate, signo_string(term_sig_)));
     else
-      js_result->Set(signal_key, v8::Null());
+      js_result->Set(signal_key, Null());
 
     if (exit_code_ >= 0)
       js_result->Set(output_key, BuildOutputObject());
     else
-      js_result->Set(output_key, v8::Null());
+      js_result->Set(output_key, Null());
 
     return scope.Close(js_result);
   }
@@ -496,7 +656,7 @@ class SpawnSyncHelper {
       if (h != NULL && h->writable())
         js_output->Set(i, h->GetOutputAsBuffer());
       else
-        js_output->Set(i, v8::Null());
+        js_output->Set(i, Null());
     }
 
     return scope.Close(js_output);
@@ -737,7 +897,7 @@ class SpawnSyncHelper {
 
     SyncStdioPipeHandler* h = new SyncStdioPipeHandler(this, readable, writable, input_buffer);
 
-    int r = h->Initialize(uv_loop());
+    int r = h->Initialize(uv_loop_);
     if (r < 0) {
       delete h;
       return r;
@@ -904,10 +1064,6 @@ class SpawnSyncHelper {
   }
 
  public:
-  uv_loop_t* uv_loop() const {
-    return uv_loop_;
-  }
-
   ~SpawnSyncHelper() {
     assert(lifecycle_ == kHandlesClosed);
 
@@ -962,41 +1118,21 @@ class SpawnSyncHelper {
   sync_process_lifecycle lifecycle_;
 };
 
-void SyncStdioPipeHandler::SetError(int error) {
-  assert(error != 0);
-  process_handler_->SetPipeError(error);
-}
 
-void SyncStdioPipeHandler::OnRead(uv_buf_t buf, ssize_t nread) {
-  fprintf(stderr, "%d\n", (int) nread);
-
-  if (nread == UV_EOF) {
-    // Libuv implicitly stops reading on EOF.
-
-  } else if (nread < 0) {
-    SetError(static_cast<int>(nread));
-    // At some point libuv should really implicitly stop reading on error.
-    uv_read_stop(uv_stream());
-
-  } else {
-    last_buffer_->OnRead(buf, nread);
-    process_handler_->IncrementBufferSizeAndCheckOverflow(nread);
-  }
-}
 
 
 void SpawnSyncHelper::Spawn(const FunctionCallbackInfo<Value>& args) {
   HandleScope scope(node_isolate);
   SpawnSyncHelper p;
-  Local<Value> result = p.Run(args[0]);
+  Local<Value> result = p.DoSpawn(args[0]);
   args.GetReturnValue().Set(result);
 }
 
-void SpawnSyncHelper::InitializeBindings(Handle<Object> target) {
+void SpawnSyncHelper::Initialize(Handle<Object> target) {
   NODE_SET_METHOD(target, "spawnSync", Spawn);
 }
 
 
 }  // namespace node
 
-NODE_MODULE(node_spawn_sync, node::SpawnSyncHelper::InitializeBindings)
+NODE_MODULE(node_spawn_sync, node::SpawnSyncHelper::Initialize)
